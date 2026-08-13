@@ -17,10 +17,11 @@
      --hue: 228;
    
      /* Backgrounds — layered depth system */
-     --bg-base:      #08090f;
-     --bg-raised:    #0d0f1a;
-     --bg-overlay:   #111420;
-     --bg-elevated:  #161926;
+     --bg-base:      #000000; /* Sidebar & lowest layer */
+     --bg-raised:    #000000; /* Content area */
+     --bg-chrome:    #000000; /* Chromebar / Header */
+     --bg-overlay:   #111111; /* Suggestions, floating menus */
+     --bg-elevated:  #161616;
    
      /* Surfaces — glassmorphic hierarchy */
      --surface-0:    rgba(255, 255, 255, 0.028);
@@ -29,28 +30,31 @@
      --surface-3:    rgba(255, 255, 255, 0.10);
    
      /* Borders */
-     --border-0:     rgba(255, 255, 255, 0.055);
-     --border-1:     rgba(255, 255, 255, 0.10);
-     --border-2:     rgba(255, 255, 255, 0.18);
-     --border-accent: rgba(99, 120, 255, 0.55);
-   
+     --border-0:     rgba(255,255,255,0.08);
+     --border-1:     rgba(255,255,255,0.12);
+     --border-2:     rgba(255,255,255,0.20);
+     --border-accent: rgba(255, 255, 255, 0.55);
+
      /* Text */
      --text-primary:   #eef0f8;
      --text-secondary: #8b93b5;
      --text-tertiary:  #555e80;
-     --text-accent:    #6f8cff;
-   
+     --text-accent:    #ffffff;
+
      /* Accent system */
-     --accent-1:       #5b6fff;
-     --accent-2:       #3ac6ff;
-     --accent-gradient: linear-gradient(135deg, #5b6fff 0%, #3ac6ff 100%);
-     --accent-glow:    rgba(91, 111, 255, 0.22);
-   
+     --accent-1:       #000000;
+     --accent-2:       #000000;
+     --accent-gradient: linear-gradient(135deg, #000000 0%, #000000 100%);
+     --accent-glow:    rgba(0, 0, 0, 0.22);
+     --accent-active-bg:     rgba(255, 255, 255, 0.10);
+     --accent-active-border: rgba(255, 255, 255, 0.22);
+     --accent-active-text:   var(--text-primary);
+
      /* Semantic */
      --color-success:  #34d39b;
      --color-warning:  #f5a623;
      --color-danger:   #f26b6b;
-     --color-info:     #60c8ff;
+     --color-info:     #000000;
    
      /* Spacing scale — 4px base */
      --s-1: 4px;
@@ -73,13 +77,15 @@
      --shadow-sm:   0 1px 3px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.22);
      --shadow-md:   0 4px 16px rgba(0,0,0,0.42), 0 1px 4px rgba(0,0,0,0.28);
      --shadow-lg:   0 12px 40px rgba(0,0,0,0.52), 0 4px 12px rgba(0,0,0,0.32);
-     --shadow-focus: 0 0 0 2.5px rgba(91, 111, 255, 0.42);
-     --shadow-accent: 0 8px 24px rgba(91, 111, 255, 0.25);
+     --shadow-focus: 0 0 0 2.5px rgba(255, 255, 255, 0.18);
+     --shadow-accent: 0 8px 24px rgba(0, 0, 0, 0.45);
    
      /* Motion */
+     --dur-micro:  90ms;
      --dur-fast:   120ms;
      --dur-base:   200ms;
      --dur-slow:   320ms;
+     --dur-page:   420ms;
      --dur-modal:  280ms;
      --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);
      --ease-in:    cubic-bezier(0.4, 0, 1, 1);
@@ -96,6 +102,8 @@
      --chrome-h: 52px;
      --status-h: 28px;
      --ai-w: 360px;
+
+     accent-color: var(--accent-1);
    }
    
    /* ── LIGHT THEME ──────────────────────────────────────────── */
@@ -141,13 +149,21 @@
      display: flex;
      gap: 10px;
      padding: 10px;
-     background:
-       radial-gradient(ellipse 80% 50% at 20% -10%, rgba(91,111,255,0.12) 0%, transparent 60%),
-       radial-gradient(ellipse 60% 40% at 80% 110%, rgba(58,198,255,0.07) 0%, transparent 60%),
-       var(--bg-base);
+     background: var(--bg-base);
+     animation: appShellIn var(--dur-page) var(--ease-out) both;
    }
    
    button { cursor: pointer; font-family: var(--font-ui); font-size: 13px; }
+
+   ::selection {
+     background: rgba(255, 255, 255, 0.15);
+     color: var(--text-primary);
+   }
+
+   :focus-visible {
+     outline: 2px solid rgba(255, 255, 255, 0.35);
+     outline-offset: 2px;
+   }
    
    /* ── SCROLLBARS ───────────────────────────────────────────── */
    ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -195,19 +211,18 @@
      flex-direction: column;
      border-radius: var(--r-2xl);
      border: 1px solid var(--border-0);
-     background:
-       linear-gradient(180deg,
-         rgba(16, 19, 36, 0.92) 0%,
-         rgba(10, 12, 22, 0.95) 100%
-       );
-     backdrop-filter: blur(24px) saturate(1.4);
-     -webkit-backdrop-filter: blur(24px) saturate(1.4);
+     background: var(--bg-base);
      padding: var(--s-3);
-     gap: var(--s-2);
+     gap: 0;
      transition:
        width var(--dur-slow) var(--ease-snappy),
-       border-color var(--dur-base) var(--ease-out);
+       border-color var(--dur-base) var(--ease-out),
+       background-color var(--dur-base) var(--ease-out),
+       box-shadow var(--dur-base) var(--ease-out),
+       transform var(--dur-base) var(--ease-out);
      overflow: hidden;
+     box-shadow: var(--shadow-sm);
+     will-change: width, transform;
    }
    
    #left-rail[data-collapsed='true'] {
@@ -225,7 +240,12 @@
    }
    
    #left-rail[data-collapsed='true'] #logo { justify-content: center; }
-   #left-rail[data-collapsed='true'] #logo-mark { display: none; }
+   #left-rail[data-collapsed='true'] #logo-mark {
+     width: 0;
+     opacity: 0;
+     transform: scale(0.82);
+     margin-right: 0;
+   }
    
    /* ── LOGO ─────────────────────────────────────────────────── */
    #logo {
@@ -235,7 +255,10 @@
      padding: var(--s-2) var(--s-2);
      border-radius: var(--r-lg);
      min-height: 44px;
-     transition: justify-content var(--dur-base) var(--ease-out);
+     transition:
+       justify-content var(--dur-base) var(--ease-out),
+       transform var(--dur-base) var(--ease-out),
+       opacity var(--dur-base) var(--ease-out);
    }
    
    .rail-collapse-btn {
@@ -248,10 +271,31 @@
    #logo-mark {
      display: inline-flex;
      flex-shrink: 0;
+     width: 22px;
+     opacity: 1;
+     overflow: hidden;
+     transform-origin: center;
+     transition:
+       width var(--dur-base) var(--ease-out),
+       opacity var(--dur-base) var(--ease-out),
+       transform var(--dur-base) var(--ease-spring),
+       margin var(--dur-base) var(--ease-out);
+   }
+
+   #logo-mark img {
+     width: 22px;
+     height: 22px;
+     display: block;
+     border-radius: 6px;
+     transform: translateZ(0);
+     transition:
+       transform var(--dur-base) var(--ease-spring),
+       filter var(--dur-base) var(--ease-out),
+       opacity var(--dur-base) var(--ease-out);
    }
    
    /* Orion logo — constellation mark */
-   #logo-mark svg .orion-ring { opacity: 0.9; }
+   #logo-mark svg .Kairon-ring { opacity: 0.9; }
    
    #logo-text {
      font-size: 15px;
@@ -268,34 +312,48 @@
      min-height: 0;
      display: flex;
      flex-direction: column;
-     gap: var(--s-2);
+     gap: var(--s-3);
    }
    
    #tab-list {
-     flex: 1;
-     min-height: 0;
-     overflow-y: auto;
-     overflow-x: hidden;
-     display: flex;
-     flex-direction: column;
-     gap: 2px;
-     padding-right: 2px;
-   }
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding-right: 2px;
+      /* Positioned so a lifted (absolute) tab anchors to this strip itself,
+         not to #left-rail (which is a transform containing block). */
+      position: relative;
+      /* Ensure scroll when tabs exceed available space */
+      scrollbar-width: thin;
+    }
    
    .tab-item {
      display: flex;
      align-items: center;
      gap: var(--s-2);
-     min-height: 38px;
+     min-height: 32px;
      padding: 0 var(--s-2) 0 var(--s-3);
-     border-radius: var(--r-lg);
+     border-radius: var(--r-md);
      border: 1px solid transparent;
      cursor: pointer;
+     /* Tabs are chrome, not selectable text, and must never start a native
+        HTML5 drag (favicon images are draggable by default). */
+     user-select: none;
+     -webkit-user-drag: none;
+     /* Hover + active-state feedback uses the micro duration so the surface
+        responds instantly to the pointer and the active switch feels snappy
+        (the actual tab switch is instantaneous — this is UI-only). */
      transition:
-       background var(--dur-fast) var(--ease-out),
-       border-color var(--dur-fast) var(--ease-out),
-       transform var(--dur-fast) var(--ease-spring);
+       background var(--dur-micro) var(--ease-out),
+       border-color var(--dur-micro) var(--ease-out),
+       transform var(--dur-micro) var(--ease-spring),
+       box-shadow var(--dur-base) var(--ease-out);
      position: relative;
+     will-change: transform;
    }
    
    .tab-item:hover {
@@ -304,27 +362,32 @@
      transform: translateX(1px);
    }
    
-   .tab-item.active {
-     background: linear-gradient(
-       135deg,
-       rgba(91, 111, 255, 0.18) 0%,
-       rgba(58, 198, 255, 0.08) 100%
-     );
-     border-color: rgba(91, 111, 255, 0.28);
-     box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-   }
-   
-   /* Active tab left indicator */
-   .tab-item.active::before {
+   .tab-item::before {
      content: '';
      position: absolute;
      left: 0;
      top: 50%;
-     transform: translateY(-50%);
+     transform: translateY(-50%) scaleY(0.72);
+     transform-origin: center;
      width: 2.5px;
      height: 18px;
      border-radius: var(--r-full);
      background: var(--accent-gradient);
+     opacity: 0;
+     transition:
+       opacity var(--dur-base) var(--ease-out),
+       transform var(--dur-base) var(--ease-spring);
+   }
+
+   .tab-item.active {
+     background: var(--accent-active-bg);
+     border-color: var(--accent-active-border);
+     box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 6px 16px rgba(0, 0, 0, 0.18);
+   }
+   
+   .tab-item.active::before {
+     opacity: 1;
+     transform: translateY(-50%) scaleY(1);
    }
    
    .tab-favicon {
@@ -342,6 +405,16 @@
      height: 14px;
      border-radius: 3px;
      display: block;
+     -webkit-user-drag: none;
+     transition:
+       transform var(--dur-fast) var(--ease-spring),
+       filter var(--dur-base) var(--ease-out),
+       opacity var(--dur-fast) var(--ease-out);
+   }
+
+   .tab-item:hover .tab-favicon img {
+     transform: scale(1.06);
+     filter: brightness(1.05);
    }
    
    .tab-title {
@@ -357,10 +430,22 @@
    
    .tab-item.active .tab-title { color: var(--text-primary); font-weight: 500; }
    
+   /* Monochrome loading pulse. The dot stays invisible for the first 150ms
+      (appearance threshold) so an ultra-fast page load never flashes it, then
+      pulses at the subtle gray idle level. `.leaving` fades it out cleanly
+      when loading finishes — the renderer removes the element afterwards with
+      a one-shot timer (never polled). */
    .tab-loading-dot {
      margin-left: 2px;
-     color: var(--accent-2);
-     animation: pulse 1.2s ease-in-out infinite;
+     color: var(--text-secondary);
+     opacity: 0;
+     animation: pulse 1.2s ease-in-out 0.15s infinite;
+   }
+
+   .tab-loading-dot.leaving {
+     opacity: 0;
+     animation: none;
+     transition: opacity var(--dur-fast) var(--ease-out);
    }
    
    .tab-close {
@@ -379,7 +464,8 @@
      transition:
        opacity var(--dur-fast) var(--ease-out),
        background var(--dur-fast) var(--ease-out),
-       color var(--dur-fast) var(--ease-out);
+       color var(--dur-fast) var(--ease-out),
+       transform var(--dur-micro) var(--ease-spring);
    }
    
    .tab-item:hover .tab-close { opacity: 1; }
@@ -387,15 +473,38 @@
      background: rgba(242, 107, 107, 0.15);
      color: var(--color-danger);
    }
+
+   /* ── SLEEPING TAB INDICATOR ──────────────────────────────── */
+   /* Muted, monochrome, no color — the tab simply reads as paused. */
+   .tab-sleep-badge {
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+     flex-shrink: 0;
+     margin-left: 4px;
+     color: var(--text-tertiary);
+     opacity: 0.75;
+     pointer-events: none;
+   }
+
+   .tab-item.sleeping .tab-title,
+   .tab-item.sleeping .tab-favicon {
+     opacity: 0.7;
+   }
+
+   body[data-tab-position="top"] .top-tab.sleeping .top-tab-title,
+   body[data-tab-position="top"] .top-tab.sleeping .top-tab-favicon {
+     opacity: 0.7;
+   }
    
    /* ── RAIL BUTTONS ─────────────────────────────────────────── */
    #btn-new-tab {
      display: flex;
      align-items: center;
      gap: var(--s-2);
-     min-height: 36px;
+     min-height: 32px;
      padding: 0 var(--s-3);
-     border-radius: var(--r-lg);
+     border-radius: var(--r-md);
      border: 1px dashed var(--border-1);
      background: transparent;
      color: var(--text-tertiary);
@@ -416,8 +525,9 @@
    }
    
    #rail-bottom {
-     border-top: 1px solid var(--border-0);
+     border-top: 1px solid rgba(255, 255, 255, 0.04);
      padding-top: var(--s-3);
+     margin-top: var(--s-3);
      display: flex;
      flex-direction: column;
      gap: 2px;
@@ -427,9 +537,9 @@
      display: flex;
      align-items: center;
      gap: var(--s-2);
-     min-height: 36px;
+     min-height: 32px;
      padding: 0 var(--s-3);
-     border-radius: var(--r-lg);
+     border-radius: var(--r-md);
      border: 1px solid transparent;
      background: transparent;
      color: var(--text-secondary);
@@ -450,40 +560,58 @@
    }
    
    #btn-toggle-ai.active {
-     background: rgba(91, 111, 255, 0.14);
-     border-color: rgba(91, 111, 255, 0.35);
-     color: #a5b4fc;
+     background: var(--accent-active-bg);
+     border-color: var(--accent-active-border);
+     color: var(--accent-active-text);
    }
    
    /* ── CENTER COLUMN ────────────────────────────────────────── */
-   #center-col {
+   #center-col { position: relative;
      flex: 1;
      min-width: 0;
      display: flex;
      flex-direction: column;
      border-radius: var(--r-2xl);
      border: 1px solid var(--border-0);
-     overflow: hidden;
+     /* overflow:visible so chromebar children (suggestions) can escape downward */
+     overflow: visible;
      background: var(--bg-raised);
+     box-shadow: var(--shadow-md);
+     transition:
+       background-color var(--dur-base) var(--ease-out),
+       border-color var(--dur-base) var(--ease-out),
+       box-shadow var(--dur-base) var(--ease-out),
+       transform var(--dur-base) var(--ease-out);
+     will-change: transform;
+   }
+   
+   #top-tab-bar {
+     display: none;
+     /* Positioned so a lifted (absolute) tab anchors to this strip itself,
+        not to #center-col (which is position:relative + will-change:
+        transform). */
+     position: relative;
    }
    
    /* ── CHROME BAR ───────────────────────────────────────────── */
    #chromebar {
      height: var(--chrome-h);
-     padding: 0 var(--s-4);
+     padding: 0 110px 0 var(--s-4);
      display: flex;
      align-items: center;
      gap: var(--s-3);
      border-bottom: 1px solid var(--border-0);
-     background:
-       linear-gradient(180deg,
-         rgba(20, 23, 42, 0.95) 0%,
-         rgba(14, 17, 30, 0.90) 100%
-       );
-     backdrop-filter: blur(20px);
-     -webkit-backdrop-filter: blur(20px);
+     background: var(--bg-chrome);
      -webkit-app-region: no-drag;
      position: relative;
+     z-index: 9500; /* above webview native layer — must be the highest non-suggestion z-index */
+     overflow: visible; /* let suggestions escape downward */
+     /* border-radius only on top corners since it sits at top of center-col */
+     border-radius: var(--r-2xl) var(--r-2xl) 0 0;
+     transition:
+       background-color var(--dur-base) var(--ease-out),
+       border-color var(--dur-base) var(--ease-out),
+       box-shadow var(--dur-base) var(--ease-out);
    }
    
    #drag-zone {
@@ -526,6 +654,52 @@
    }
    .nav-btn:active { transform: scale(0.90); }
    .nav-btn:disabled { opacity: 0.28; pointer-events: none; }
+
+   #zoom-controls {
+     height: 30px;
+     display: inline-flex;
+     align-items: center;
+     flex-shrink: 0;
+     border: 1px solid var(--border-0);
+     border-radius: var(--r-md);
+     background: var(--surface-1);
+     overflow: hidden;
+   }
+
+   .zoom-btn {
+     width: 27px;
+     height: 28px;
+     border: 0;
+     background: transparent;
+     color: var(--text-secondary);
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+     font-size: 15px;
+     transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+   }
+
+   .zoom-btn:hover {
+     background: var(--surface-2);
+     color: var(--text-primary);
+   }
+
+   .zoom-btn:active { background: var(--surface-3); }
+   .zoom-btn:disabled { opacity: 0.28; pointer-events: none; }
+
+   #zoom-value {
+     min-width: 43px;
+     color: var(--text-secondary);
+     font-family: var(--font-mono);
+     font-size: 11px;
+     text-align: center;
+     user-select: none;
+   }
+
+   .zoom-reset-btn {
+     border-left: 1px solid var(--border-0);
+     font-size: 14px;
+   }
    
    /* ── OMNIBAR ──────────────────────────────────────────────── */
    #omnibar-outer {
@@ -553,7 +727,7 @@
    
    #omnibar:focus-within {
      border-color: var(--border-accent);
-     box-shadow: var(--shadow-focus), 0 4px 16px rgba(91,111,255,0.15);
+     box-shadow: var(--shadow-focus), var(--shadow-accent);
      transform: translateY(-1px) scaleX(1.005);
      background: var(--surface-2);
    }
@@ -589,19 +763,22 @@
    
    /* ── SUGGESTIONS ──────────────────────────────────────────── */
    #address-suggestions {
-     position: absolute;
-     left: 0;
-     right: 0;
-     top: calc(100% + 8px);
+     /* Fixed positioning in overlay-root — above Electron webview layer */
+     position: fixed;
+     /* top/left/width set by JS from address-bar getBoundingClientRect() */
      border-radius: var(--r-xl);
      border: 1px solid var(--border-1);
-     background: rgba(13, 15, 26, 0.97);
+     background: rgba(17, 17, 17, 0.97);
      backdrop-filter: blur(24px);
      -webkit-backdrop-filter: blur(24px);
      padding: var(--s-2);
      box-shadow: var(--shadow-lg);
-     z-index: 100;
+     z-index: 1; /* Relative to overlay-root */
+     pointer-events: auto; /* Re-enable pointer events for interaction */
      animation: suggFadeIn var(--dur-fast) var(--ease-out);
+     overflow-y: visible;
+     overflow-x: hidden;
+     max-height: none;
    }
    
    #address-suggestions.hidden { display: none; }
@@ -622,15 +799,15 @@
        color var(--dur-fast) var(--ease-out);
    }
    .address-suggestion-item:hover {
-     background: rgba(91, 111, 255, 0.12);
+     background: var(--accent-active-bg);
      color: var(--text-primary);
    }
    
    /* ── WINDOW CONTROLS ──────────────────────────────────────── */
-   #win-controls {
+   #win-controls { position: absolute; top: 12px; right: 16px; z-index: 10000;
      display: flex;
      gap: var(--s-1);
-   }
+   } body[data-tab-position="top"] #win-controls { top: 10px; right: 12px; }
    
    #win-controls button {
      width: 28px;
@@ -642,11 +819,17 @@
      display: inline-flex;
      align-items: center;
      justify-content: center;
-     transition: all var(--dur-fast) var(--ease-out);
+     transition:
+       background var(--dur-fast) var(--ease-out),
+       border-color var(--dur-fast) var(--ease-out),
+       color var(--dur-fast) var(--ease-out),
+       transform var(--dur-fast) var(--ease-spring),
+       box-shadow var(--dur-fast) var(--ease-out);
    }
    #win-controls button:hover {
      background: var(--surface-2);
      color: var(--text-primary);
+     transform: translateY(-1px);
    }
    
    #btn-close:hover  { background: rgba(242,107,107,0.18); color: #ffa0a0; border-color: rgba(242,107,107,0.3); }
@@ -661,7 +844,11 @@
      align-items: center;
      justify-content: space-between;
      border-bottom: 1px solid var(--border-0);
-     background: rgba(9, 11, 20, 0.7);
+     background: rgba(0, 0, 0, 0.7);
+     transition:
+       background-color var(--dur-base) var(--ease-out),
+       border-color var(--dur-base) var(--ease-out),
+       color var(--dur-base) var(--ease-out);
    }
    
    #tracker-pill {
@@ -681,6 +868,10 @@
      white-space: nowrap;
      font-size: 11px;
      color: var(--text-tertiary);
+     transition:
+       color var(--dur-base) var(--ease-out),
+       opacity var(--dur-base) var(--ease-out),
+       transform var(--dur-base) var(--ease-out);
    }
    
    /* ── AI PANEL ─────────────────────────────────────────────── */
@@ -689,10 +880,7 @@
      flex-shrink: 0;
      border-radius: var(--r-2xl);
      border: 1px solid var(--border-0);
-     background: linear-gradient(180deg,
-       rgba(16, 18, 34, 0.96) 0%,
-       rgba(10, 12, 22, 0.98) 100%
-     );
+     background: #000000;
      backdrop-filter: blur(24px);
      -webkit-backdrop-filter: blur(24px);
      display: flex;
@@ -701,7 +889,11 @@
      transition:
        width var(--dur-slow) var(--ease-snappy),
        opacity var(--dur-base) var(--ease-out),
-       transform var(--dur-slow) var(--ease-snappy);
+       transform var(--dur-slow) var(--ease-snappy),
+       border-color var(--dur-base) var(--ease-out),
+       box-shadow var(--dur-base) var(--ease-out);
+     box-shadow: var(--shadow-md);
+     will-change: width, opacity, transform;
    }
    
    #ai-panel.hidden {
@@ -783,9 +975,9 @@
      font-size: 10px;
      font-weight: 700;
      flex-shrink: 0;
-     background: rgba(91, 111, 255, 0.2);
-     border: 1px solid rgba(91, 111, 255, 0.3);
-     color: #a5b4fc;
+     background: var(--accent-active-bg);
+     border: 1px solid var(--accent-active-border);
+     color: var(--accent-active-text);
    }
    
    .msg-bubble {
@@ -801,8 +993,8 @@
    
    .user-msg { flex-direction: row-reverse; }
    .user-msg .msg-bubble {
-     background: rgba(91, 111, 255, 0.13);
-     border-color: rgba(91, 111, 255, 0.22);
+     background: var(--accent-active-bg);
+     border-color: var(--accent-active-border);
      color: var(--text-primary);
    }
    
@@ -853,7 +1045,7 @@
      align-items: center;
      justify-content: center;
      flex-shrink: 0;
-     box-shadow: 0 2px 8px rgba(91,111,255,0.35);
+     box-shadow: var(--shadow-sm);
      transition:
        transform var(--dur-fast) var(--ease-spring),
        box-shadow var(--dur-fast) var(--ease-out),
@@ -861,7 +1053,7 @@
    }
    #btn-send:hover {
      transform: translateY(-1px);
-     box-shadow: 0 4px 14px rgba(91,111,255,0.45);
+     box-shadow: var(--shadow-md);
    }
    #btn-send:active { transform: scale(0.90); }
    
@@ -873,34 +1065,31 @@
      letter-spacing: 0.02em;
    }
    
-   /* ── SETTINGS PANEL ───────────────────────────────────────── */
-   #settings-panel {
-     position: fixed;
-     inset: 0;
-     z-index: 200;
+   /* ── SETTINGS WINDOW ──────────────────────────────────────── */
+   body.settings-window {
      display: flex;
-     align-items: center;
-     justify-content: center;
-     background: rgba(4, 5, 10, 0.7);
-     backdrop-filter: blur(12px);
-     -webkit-backdrop-filter: blur(12px);
-     animation: overlayIn var(--dur-modal) var(--ease-out);
+     padding: 0;
+     gap: 0;
+     background: var(--bg-base);
+     overflow: hidden;
    }
-   #settings-panel.hidden { display: none; }
-   
-   #settings-shell {
-     width: min(1100px, calc(100vw - 48px));
-     height: min(720px, calc(100vh - 48px));
-     border-radius: var(--r-2xl);
-     border: 1px solid var(--border-1);
-     background: rgba(12, 14, 24, 0.98);
-     backdrop-filter: blur(32px);
-     -webkit-backdrop-filter: blur(32px);
-     box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255,255,255,0.04) inset;
+
+   body.settings-window #settings-shell {
+     width: 100%;
+     height: 100%;
+     border-radius: 0;
+     border: none;
+     background: var(--bg-base);
+     backdrop-filter: none;
+     -webkit-backdrop-filter: none;
+     box-shadow: none;
      overflow: hidden;
      display: flex;
      flex-direction: column;
-     animation: modalIn var(--dur-modal) var(--ease-spring);
+   }
+
+   body.settings-window #settings-actions {
+     padding: 0;
    }
    
    #settings-header {
@@ -1002,9 +1191,9 @@
      color: var(--text-primary);
    }
    .settings-category-btn.active {
-     background: rgba(91, 111, 255, 0.13);
-     border-color: rgba(91, 111, 255, 0.28);
-     color: #a5b4fc;
+     background: var(--accent-active-bg);
+     border-color: var(--accent-active-border);
+     color: var(--accent-active-text);
    }
    
    /* ── SETTINGS MAIN ────────────────────────────────────────── */
@@ -1043,7 +1232,7 @@
      min-height: 80px;
      border-radius: var(--r-lg);
      border: 1px solid var(--border-0);
-     background: rgba(4, 5, 12, 0.5);
+     background: rgba(0, 0, 0, 0.5);
      color: var(--text-secondary);
      padding: var(--s-3);
      font-family: var(--font-mono);
@@ -1159,7 +1348,7 @@
    .feature-toggle:checked {
      background: var(--accent-gradient);
      border-color: transparent;
-     box-shadow: 0 0 0 3px rgba(91,111,255,0.2), var(--shadow-sm);
+     box-shadow: 0 0 0 3px var(--accent-glow), var(--shadow-sm);
    }
    
    .feature-toggle:checked::after {
@@ -1193,7 +1382,7 @@
    .feature-setting-row textarea {
      border-radius: var(--r-md);
      border: 1px solid var(--border-1);
-     background: rgba(5, 6, 14, 0.7);
+     background: rgba(0, 0, 0, 0.7);
      color: var(--text-primary);
      padding: 0 var(--s-2);
      font-family: var(--font-mono);
@@ -1221,6 +1410,93 @@
      padding: var(--s-2);
      min-height: 64px;
      resize: vertical;
+   }
+
+   .feature-select {
+     width: 220px;
+     height: 28px;
+     border-radius: var(--r-md);
+     border: 1px solid var(--border-1);
+     background: rgba(0, 0, 0, 0.7);
+     color: var(--text-primary);
+     padding: 0 28px 0 var(--s-2);
+     font-family: var(--font-ui);
+     font-size: 12px;
+     outline: none;
+     cursor: pointer;
+     appearance: none;
+     -webkit-appearance: none;
+     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93b5' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+     background-repeat: no-repeat;
+     background-position: right 10px center;
+     transition:
+       border-color var(--dur-base) var(--ease-out),
+       box-shadow var(--dur-base) var(--ease-out);
+   }
+
+   .feature-select:focus {
+     border-color: var(--accent-active-border);
+     box-shadow: var(--shadow-focus);
+   }
+
+   .feature-select option {
+     background: var(--bg-elevated);
+     color: var(--text-primary);
+   }
+
+   .settings-modal {
+     position: fixed;
+     inset: 0;
+     z-index: 200;
+     display: grid;
+     place-items: center;
+     padding: var(--s-5);
+     background: rgba(5, 7, 14, 0.72);
+     backdrop-filter: blur(8px);
+   }
+
+   .settings-modal[hidden] {
+     display: none;
+   }
+
+   .settings-modal-dialog {
+     width: min(420px, 100%);
+     padding: var(--s-5);
+     border: 1px solid var(--border-1);
+     border-radius: var(--r-lg);
+     background: var(--bg-elevated);
+     box-shadow: var(--shadow-lg);
+     animation: modalIn var(--dur-modal) var(--ease-out);
+   }
+
+   .settings-modal-dialog h3 {
+     margin: 0;
+     color: var(--text-primary);
+     font-size: 16px;
+     font-weight: 600;
+     line-height: 1.45;
+   }
+
+   .settings-modal-actions {
+     display: flex;
+     justify-content: flex-end;
+     gap: var(--s-2);
+     margin-top: var(--s-5);
+   }
+
+   .settings-modal-actions button {
+     height: 32px;
+     padding: 0 var(--s-3);
+     border: 1px solid var(--border-1);
+     border-radius: var(--r-md);
+     background: var(--surface-1);
+     color: var(--text-secondary);
+   }
+
+   .settings-modal-actions button.primary {
+     border-color: var(--accent-active-border);
+     background: var(--accent-gradient);
+     color: white;
    }
    
    /* ── KEYFRAMES ────────────────────────────────────────────── */
@@ -1252,10 +1528,215 @@
      from { opacity: 0; transform: translateY(6px); }
      to   { opacity: 1; transform: none; }
    }
+
+   @keyframes appShellIn {
+     from {
+       opacity: 0;
+       transform: translateY(8px) scale(0.992);
+     }
+     to {
+       opacity: 1;
+       transform: none;
+     }
+   }
    
    /* ── RESPONSIVE ───────────────────────────────────────────── */
    @media (max-width: 1200px) {
      :root { --ai-w: 320px; --rail-w: 210px; }
+   }
+   
+   /* ── TOP TAB MODE STYLING ───────────────────────────────────────────── */
+   body[data-tab-position="top"] {
+     padding: 0;
+     gap: 0;
+     background: black;
+   }
+   
+   body[data-tab-position="top"] #left-rail {
+     display: none;
+   }
+   
+   body[data-tab-position="top"] #center-col {
+     width: 100%;
+     height: 100%;
+     border: none;
+     border-radius: 0;
+     background: black;
+   }
+   
+   body[data-tab-position="top"] #chromebar { padding-right: var(--s-4);
+     border-radius: 0;
+     background: rgba(0, 0, 0, 0.95);
+     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+   }
+   
+   body[data-tab-position="top"] #status-strip {
+     background: rgba(0, 0, 0, 0.7);
+   }
+   
+   /* Top tab bar styling */
+   body[data-tab-position="top"] #top-tab-bar {
+     display: flex;
+     align-items: center;
+     gap: 3px;
+     padding: 6px 110px 0 12px;
+     background: rgba(0, 0, 0, 0.9);
+     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+     height: 48px;
+     /* Allow horizontal scrolling when tabs are too small */
+     overflow-x: auto;
+     overflow-y: hidden;
+     flex-wrap: nowrap;
+     scrollbar-width: thin;
+     transition:
+       background-color var(--dur-base) var(--ease-out),
+       border-color var(--dur-base) var(--ease-out);
+   }
+   
+   body[data-tab-position="top"] .top-tab {
+     display: flex;
+     align-items: center;
+     gap: 5px;
+     /* Tabs shrink equally to fit, with reasonable min width */
+     min-width: 64px;
+     flex: 1 1 0%;
+     max-width: 240px;
+     height: 36px;
+     padding: 0 8px;
+     border-radius: 10px 10px 0 0;
+     border: 1px solid rgba(255, 255, 255, 0.1);
+     background: rgba(20, 20, 20, 0.9);
+     cursor: pointer;
+     /* Chrome, not selectable text; never a native HTML5 drag source. */
+     user-select: none;
+     -webkit-user-drag: none;
+     /* Same micro-duration feedback as the sidebar tabs: hover and the
+        active-state switch resolve in 90ms while the layout (flex-basis)
+        and shadow still ease at the base duration. */
+     transition:
+       background var(--dur-micro) var(--ease-out),
+       border-color var(--dur-micro) var(--ease-out),
+       color var(--dur-micro) var(--ease-out),
+       transform var(--dur-micro) var(--ease-spring),
+       box-shadow var(--dur-base) var(--ease-out),
+       flex-basis var(--dur-base) var(--ease-out);
+     position: relative;
+     will-change: transform, flex-basis;
+     box-sizing: border-box;
+   }
+   
+   body[data-tab-position="top"] .top-tab:hover {
+     background: rgba(30, 30, 30, 0.95);
+     transform: translateY(-1px);
+   }
+   
+   body[data-tab-position="top"] .top-tab.active {
+     background: rgba(40, 40, 40, 0.98);
+     border-color: rgba(255, 255, 255, 0.4);
+     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.5);
+   }
+   
+   body[data-tab-position="top"] .top-tab-favicon {
+     width: 14px;
+     height: 14px;
+     flex-shrink: 0;
+     color: var(--text-tertiary);
+     display: flex;
+     align-items: center;
+     justify-content: center;
+   }
+   
+   body[data-tab-position="top"] .top-tab-favicon img {
+     width: 14px;
+     height: 14px;
+     border-radius: 3px;
+     display: block;
+     -webkit-user-drag: none;
+     transition:
+       transform var(--dur-fast) var(--ease-spring),
+       filter var(--dur-base) var(--ease-out);
+   }
+
+   body[data-tab-position="top"] .top-tab:hover .top-tab-favicon img {
+     transform: scale(1.06);
+     filter: brightness(1.05);
+   }
+   
+   body[data-tab-position="top"] .top-tab-title {
+     flex: 1;
+     font-size: 11px;
+     font-weight: 450;
+     white-space: nowrap;
+     overflow: hidden;
+     text-overflow: ellipsis;
+     color: var(--text-secondary);
+     /* Ensure title shrinks when tab is small */
+     min-width: 0;
+     /* Let the title fade between active/inactive instead of snapping. */
+     transition: color var(--dur-fast) var(--ease-out);
+   }
+
+   body[data-tab-position="top"] .top-tab-close {
+     /* Hide close button when tab is tiny to keep things clean */
+     flex-shrink: 0;
+     width: 18px;
+     height: 18px;
+   }
+   
+   body[data-tab-position="top"] .top-tab.active .top-tab-title {
+     color: var(--text-primary);
+     font-weight: 500;
+   }
+   
+   body[data-tab-position="top"] .top-tab-close {
+     width: 20px;
+     height: 20px;
+     border: none;
+     background: transparent;
+     color: var(--text-tertiary);
+     border-radius: 4px;
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+     flex-shrink: 0;
+     font-size: 11px;
+     transition:
+       background var(--dur-fast) var(--ease-out),
+       color var(--dur-fast) var(--ease-out),
+       transform var(--dur-fast) var(--ease-spring);
+   }
+   
+   body[data-tab-position="top"] .top-tab-close:hover {
+     background: rgba(242, 107, 107, 0.15);
+     color: var(--color-danger);
+   }
+   
+   body[data-tab-position="top"] .btn-new-tab-top {
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     gap: 6px;
+     height: 36px;
+     padding: 0 12px;
+     border-radius: 10px 10px 0 0;
+     border: 1px dashed rgba(255, 255, 255, 0.2);
+     background: rgba(20, 20, 20, 0.7);
+     color: var(--text-secondary);
+     cursor: pointer;
+     transition:
+       background var(--dur-fast) var(--ease-out),
+       border-color var(--dur-fast) var(--ease-out),
+       color var(--dur-fast) var(--ease-out),
+       transform var(--dur-fast) var(--ease-spring);
+     font-size: 12px;
+     font-weight: 500;
+   }
+   
+   body[data-tab-position="top"] .btn-new-tab-top:hover {
+     background: rgba(30, 30, 30, 0.9);
+     border-color: rgba(255, 255, 255, 0.3);
+     color: var(--text-primary);
+     transform: translateY(-1px);
    }
    
    @media (max-width: 960px) {
@@ -1263,4 +1744,140 @@
      #left-rail { width: var(--rail-w-collapsed) !important; }
      #ai-panel { display: none !important; }
      #btn-toggle-ai { display: none; }
+   }
+
+   @media (prefers-reduced-motion: reduce) {
+     *, *::before, *::after {
+       animation-duration: 0.01ms !important;
+       animation-iteration-count: 1 !important;
+       transition-duration: 0.01ms !important;
+       scroll-behavior: auto !important;
+     }
+
+     body {
+       animation: none !important;
+     }
+
+     /* Keep the loading state readable without motion: a static dot, no pulse.
+        The blanket rule above would otherwise leave the threshold-hidden dot
+        invisible. */
+     .tab-loading-dot {
+       opacity: 1 !important;
+       animation: none !important;
+     }
+   }
+
+   /* ── TAB DRAG & REORDER ──────────────────────────────────── */
+   /* The lifted tab follows the pointer via an inline transform set by the
+      renderer; the class adds the subtle scale/opacity lift plus elevation.
+      `transition: none` keeps it glued to the cursor while held — removing
+      the class on drop/cancel lets the base tab transition animate it back
+      into its slot. Monochrome tokens only: no gradients, no bright colors. */
+   .tab-item.dragging,
+   body[data-tab-position="top"] .top-tab.dragging {
+     opacity: 0.88;
+     z-index: 5;
+     box-shadow: var(--shadow-md);
+     background: var(--surface-2);
+     border-color: var(--border-1);
+     transition: none;
+     pointer-events: none;
+   }
+
+   /* Prevent text selection anywhere while a tab drag is in flight. */
+   body.tab-dragging {
+     user-select: none;
+     cursor: grabbing;
+   }
+
+   /* Insertion caret shown at the drop slot while reordering. A thin, rounded,
+      monochrome surface pill — reads as the drop boundary, never a color. */
+   .tab-drop-indicator {
+     flex: 0 0 auto;
+     width: 100%;
+     height: 2px;
+     border-radius: var(--r-full);
+     background: var(--text-secondary);
+     opacity: 0.75;
+     pointer-events: none;
+   }
+
+   body[data-tab-position="top"] #top-tab-bar .tab-drop-indicator {
+     width: 2px;
+     height: 24px;
+     align-self: center;
+   }
+
+   /* Invisible stand-in that holds the dragged tab's slot in the flex layout
+      while the real tab is lifted out of flow (position: absolute). Keeps the
+      remaining tabs laid out exactly as they were, so the drop-slot math and
+      the neighbors' reflow match the pre-drag layout. visibility:hidden (not
+      display:none) so it still occupies its flex slot; never interactive. */
+   .tab-drag-placeholder {
+     visibility: hidden;
+     pointer-events: none;
+     flex: 0 0 auto;
+   }
+
+   /* ── TAB OPEN / CLOSE ANIMATIONS ─────────────────────────── */
+   /* One-shot entrance: a newly created tab fades + scales in naturally instead
+      of popping into existence. Purely visual — the main-process tabs-state
+      remains the source of truth and the tab is interactive immediately. New
+      tabs arrive with a whisper of direction so the entry reads as the tab
+      settling into its slot: the sidebar tab rises a few px (vertical list),
+      the top-strip tab slides in from the right where the New Tab button sits.
+      One-shot, 200ms, subtle scale. The keyframe keeps the `tab-enter`
+      animation name so the renderer's existing one-shot cleanup is unaffected. */
+   .tab-item.tab-enter {
+     --enter-x: 0px;
+     --enter-y: 4px;
+     animation: tab-enter var(--dur-base) var(--ease-out);
+   }
+
+   body[data-tab-position="top"] .top-tab.tab-enter {
+     --enter-x: 6px;
+     --enter-y: 0px;
+     animation: tab-enter var(--dur-base) var(--ease-out);
+   }
+
+   @keyframes tab-enter {
+     from { opacity: 0; transform: translate(var(--enter-x, 0px), var(--enter-y, 4px)) scale(0.97); }
+     to   { opacity: 1; transform: translate(0, 0) scale(1); }
+   }
+
+   /* Closing collapse: the tab shrinks in place (width/height driven by the
+      measured --close-* custom property) while neighboring tabs reflow smoothly
+      into the freed space, then it fades out. The element is kept out of the
+      live patch map, so it is never the source of truth. */
+   .tab-item.closing {
+     min-height: 0;
+     overflow: hidden;
+     pointer-events: none;
+     user-select: none;
+     animation: tab-close-v var(--dur-base) var(--ease-out) forwards;
+   }
+
+   /* Collapse-then-fade: the tab stays visible while it shrinks (so neighbors
+      reflow into the freed space against a solid edge), then dissolves at the
+      very end. Reads as the tab collapsing away rather than melting the whole
+      time. Duration still var(--dur-base) — the renderer's 260ms safety timer
+      and animationend cleanup are unchanged. */
+   @keyframes tab-close-v {
+     0%   { opacity: 1; height: var(--close-h, 32px); transform: translateX(0); }
+     60%  { opacity: 1; height: calc(var(--close-h, 32px) * 0.4); transform: translateX(-2px); }
+     100% { opacity: 0; height: 0; transform: translateX(-4px); }
+   }
+
+   body[data-tab-position="top"] .top-tab.closing {
+     min-width: 0;
+     overflow: hidden;
+     pointer-events: none;
+     user-select: none;
+     animation: tab-close-h var(--dur-base) var(--ease-out) forwards;
+   }
+
+   @keyframes tab-close-h {
+     0%   { opacity: 1; max-width: var(--close-w, 240px); }
+     60%  { opacity: 1; max-width: calc(var(--close-w, 240px) * 0.4); }
+     100% { opacity: 0; max-width: 0; }
    }

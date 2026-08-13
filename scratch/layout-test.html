@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Layout Test — Home Page Centering</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #000000;
+      --surface-1: #050505;
+      --surface-2: #0A0A0A;
+      --text: #eef0f8;
+      --text-secondary: #8b93b5;
+      --text-tertiary: #555e80;
+      --text-muted: #555e80;
+      --border: rgba(255,255,255,0.07);
+      --border-strong: rgba(255,255,255,0.10);
+      --highlight: rgba(255,255,255,0.06);
+      --shadow-highlight: inset 0 1px 0 rgba(255,255,255,0.06);
+      --dur-fast: 180ms;
+      --dur-base: 260ms;
+      --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+      --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'SF Mono', monospace;
+    }
+
+    html, body {
+      width: 100%;
+      min-height: 100vh;
+      font-family: var(--font-ui);
+      color: var(--text);
+      background: #000000;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .page-content {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      gap: 40px;
+    }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #FFFFFF;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: rgba(0, 0, 0, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .hero-eyebrow .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #3b82f6;
+    }
+
+    .hero-time {
+      font-size: 56px;
+      font-weight: 300;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      color: var(--text);
+    }
+
+    .hero-date {
+      font-size: 16px;
+      color: var(--text-secondary);
+      font-weight: 400;
+      letter-spacing: 0.01em;
+    }
+
+    /* Search */
+    .search-section {
+      width: min(100%, 750px);
+      margin: 0 auto;
+    }
+
+    .search-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 52px;
+      padding: 0 12px 0 18px;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(15, 15, 15, 0.95);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    .search-input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font-size: 16px;
+      font-family: var(--font-ui);
+      font-weight: 400;
+      outline: none;
+    }
+
+    .search-input::placeholder { color: var(--text-muted); }
+
+    .search-btn {
+      height: 38px;
+      padding: 0 22px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(0,0,0,0.5);
+      color: var(--text);
+      font-size: 14px;
+      font-family: var(--font-ui);
+      font-weight: 500;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* Speed Dial */
+    .dial-section {
+      width: min(100%, 750px);
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+      margin-bottom: 16px;
+      padding-left: 4px;
+    }
+
+    .dial-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .dial {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: rgba(15, 15, 15, 0.9);
+      color: var(--text);
+      text-decoration: none;
+      min-height: 90px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+      padding: 16px 18px;
+    }
+
+    .dial strong {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .dial span {
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+
+    /* Footer */
+    .page-footer {
+      padding: 24px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      background: transparent;
+    }
+
+    .footer-hint {
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+
+    /* Measurement overlay */
+    .measure-box {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: transparent;
+      pointer-events: none;
+      z-index: 9999;
+    }
+    .center-marker {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      width: 1px;
+      height: 100vh;
+      background: rgba(255, 0, 0, 0.3);
+      pointer-events: none;
+      z-index: 9999;
+    }
+  </style>
+</head>
+<body>
+  <!-- Visual center marker -->
+  <div class="center-marker"></div>
+
+  <div class="page-content">
+    <header class="hero">
+      <div class="hero-eyebrow">
+        <div class="dot"></div>
+        <span>Good morning</span>
+      </div>
+      <div class="hero-time">12:00 PM</div>
+      <div class="hero-date">Monday, January 1</div>
+    </header>
+
+    <section class="search-section">
+      <form class="search-wrap" id="search-form" autocomplete="off">
+        <input
+          class="search-input"
+          type="text"
+          placeholder="Search the web or enter an address…"
+          autocomplete="off"
+          autofocus
+        />
+        <button class="search-btn" type="submit">Search</button>
+      </form>
+    </section>
+
+    <section class="dial-section">
+      <div class="section-label">Quick access</div>
+      <div class="dial-grid" id="dial-grid">
+        <a class="dial" href="#">
+          <strong>YouTube</strong>
+          <span>youtube.com</span>
+        </a>
+        <a class="dial" href="#">
+          <strong>GitHub</strong>
+          <span>github.com</span>
+        </a>
+        <a class="dial" href="#">
+          <strong>Brave Search</strong>
+          <span>search.brave.com</span>
+        </a>
+        <a class="dial" href="#">
+          <strong>Gmail</strong>
+          <span>mail.google.com</span>
+        </a>
+        <a class="dial" href="#">
+          <strong>X</strong>
+          <span>x.com</span>
+        </a>
+        <a class="dial" href="#">
+          <strong>Reddit</strong>
+          <span>reddit.com</span>
+        </a>
+        <a class="dial" href="#">
+          <strong>Stack Overflow</strong>
+          <span>stackoverflow.com</span>
+        </a>
+        <a class="dial" href="#">
+          <strong>Hacker News</strong>
+          <span>news.ycombinator.com</span>
+        </a>
+      </div>
+    </section>
+  </div>
+
+  <footer class="page-footer">
+    <div class="footer-hint">
+      Type <strong>home</strong> in the address bar to return here
+    </div>
+  </footer>
+
+  <script>
+    // Log diagnostic measurements
+    (function measure() {
+      function r(el) {
+        if (!el) return null;
+        var b = el.getBoundingClientRect();
+        return {
+          left: Math.round(b.left),
+          right: Math.round(b.right),
+          width: Math.round(b.width),
+          leftGap: Math.round(b.left),
+          rightGap: Math.round(window.innerWidth - b.right),
+          imbalance: Math.abs(Math.round(b.left - (window.innerWidth - b.right)))
+        };
+      }
+
+      function log() {
+        var w = window.innerWidth;
+        var h = window.innerHeight;
+        var report = {
+          viewport: { width: w, height: h },
+          body: r(document.body),
+          pageContent: r(document.querySelector('.page-content')),
+          searchSection: r(document.querySelector('.search-section')),
+          dialSection: r(document.querySelector('.dial-section')),
+          dialGrid: r(document.querySelector('.dial-grid')),
+        };
+        console.log('=== DIAG: LAYOUT MEASUREMENTS ===');
+        console.log(JSON.stringify(report, null, 2));
+        
+        ['pageContent', 'searchSection', 'dialSection', 'dialGrid'].forEach(function(key) {
+          var el = report[key];
+          if (!el) return;
+          var ok = Math.abs(el.leftGap - el.rightGap) <= 2;
+          console.log(key + ': leftGap=' + el.leftGap + ' rightGap=' + el.rightGap + ' imbalance=' + el.imbalance + 'px ' + (ok ? '✓' : '✗ OFF-CENTER'));
+        });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() { setTimeout(log, 100); });
+        document.addEventListener('DOMContentLoaded', function() { setTimeout(log, 500); });
+      } else {
+        setTimeout(log, 100);
+        setTimeout(log, 500);
+      }
+      window.addEventListener('resize', function() { setTimeout(log, 300); });
+    })();
+  </script>
+</body>
+</html>

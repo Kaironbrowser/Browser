@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Settings — Kairon</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="settings-window">
+  <div id="settings-shell">
+
+    <div id="settings-header">
+      <div id="settings-title-wrap">
+        <h2>Settings</h2>
+        <input
+          id="settings-search"
+          type="text"
+          placeholder="Search settings…"
+          aria-label="Search settings"
+          autocomplete="off"
+        />
+      </div>
+      <div id="settings-actions">
+        <button id="btn-reset-all-settings">Reset All</button>
+        <button id="btn-export-settings">Export</button>
+        <button id="btn-import-settings">Import</button>
+      </div>
+      <button id="btn-close-settings" aria-label="Close settings">Close</button>
+    </div>
+
+    <div id="settings-content">
+      <aside id="settings-sidebar" role="navigation" aria-label="Settings categories"></aside>
+      <main id="settings-main">
+        <textarea id="settings-import-export" placeholder="Paste settings JSON here to import…" aria-label="Settings JSON"></textarea>
+        <div id="settings-feature-list" role="list"></div>
+      </main>
+    </div>
+
+  </div>
+
+  <div id="dns-restart-modal" class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="dns-restart-modal-title" hidden>
+    <div class="settings-modal-dialog">
+      <h3 id="dns-restart-modal-title">Restart Kairon to apply your DNS setting?</h3>
+      <div class="settings-modal-actions">
+        <button id="btn-cancel-dns-restart" type="button">Cancel</button>
+        <button id="btn-confirm-dns-restart" class="primary" type="button">Restart Now</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="settings-window.js"></script>
+</body>
+</html>

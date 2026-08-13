@@ -3,11 +3,40 @@ const FEATURE_REGISTRY = [
     id: 'adBlocker',
     name: 'Ad Blocker',
     category: 'privacy',
-    defaultEnabled: true,
+    // Disabled by default: enable explicitly in settings or via shields
+    defaultEnabled: false,
+    // mode: 'off' | 'cosmetic' | 'full' | 'standard' | 'aggressive'
     settings: {
+      mode: 'off',
       blockTrackers: true,
       blockAds: true,
-      customBlocklists: [],
+    },
+  },
+  {
+    id: 'httpsOnlyMode',
+    name: 'HTTPS-Only Mode',
+    category: 'privacy',
+    description: 'Automatically upgrades sites to HTTPS and warns before loading insecure pages.',
+    defaultEnabled: true,
+    settings: {},
+  },
+  {
+    id: 'webRtcProtection',
+    name: 'WebRTC Protection',
+    category: 'privacy',
+    description: 'Restricts WebRTC to proxied/relay connections (disables non-proxied UDP) to reduce IP exposure.',
+    defaultEnabled: true,
+    settings: {},
+  },
+  {
+    id: 'dnsOverHttps',
+    name: 'Secure DNS',
+    category: 'privacy',
+    description: 'Encrypt DNS lookups with DNS-over-HTTPS. Changes take effect after restarting Kairon.',
+    defaultEnabled: true,
+    settings: {
+      provider: 'cloudflare',
+      customUrl: '',
     },
   },
   {
@@ -28,13 +57,16 @@ const FEATURE_REGISTRY = [
     defaultEnabled: true,
     settings: {
       mode: 'dark',
-      compactMode: false,
+      tabPosition: 'sidebar', // "sidebar" or "top"
     },
   },
   {
     id: 'performanceOptimizer',
     name: 'Performance Optimizer',
     category: 'performance',
+    // Not wired up in code yet: hidden from the settings UI so users don't
+    // mistake an inert control for a working feature.
+    hidden: true,
     defaultEnabled: true,
     settings: {
       discardInactiveTabs: false,
@@ -55,6 +87,8 @@ const FEATURE_REGISTRY = [
     id: 'tabBehavior',
     name: 'Tab Behavior',
     category: 'performance',
+    // Not wired up in code yet: hidden from the settings UI.
+    hidden: true,
     defaultEnabled: true,
     settings: {
       confirmOnCloseMultiple: false,
@@ -65,9 +99,10 @@ const FEATURE_REGISTRY = [
     id: 'securityProtections',
     name: 'Security Protections',
     category: 'security',
+    // Not wired up in code yet: hidden from the settings UI.
+    hidden: true,
     defaultEnabled: true,
     settings: {
-      httpsOnlyMode: false,
       blockInsecureContent: true,
     },
   },
@@ -75,6 +110,8 @@ const FEATURE_REGISTRY = [
     id: 'developerTools',
     name: 'Developer Tools',
     category: 'advanced',
+    // Not wired up in code yet: hidden from the settings UI.
+    hidden: true,
     defaultEnabled: false,
     settings: {
       allowDevtools: false,

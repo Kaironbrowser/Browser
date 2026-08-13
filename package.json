@@ -1,5 +1,5 @@
 {
-  "name": "orion-browser",
+  "name": "kairon-browser",
   "version": "1.0.0",
   "description": "Privacy-focused browser with AI sidebar",
   "main": "src/main/main.js",
@@ -10,15 +10,15 @@
     "build:dir": "electron-builder --win --x64 --dir"
   },
   "build": {
-    "appId": "com.orion.browser",
-    "productName": "Orion Browser",
+    "appId": "com.kairon.browser",
+    "productName": "Kairon Browser",
     "asar": true,
     "artifactName": "${productName}-Setup-${version}.${ext}",
     "directories": {
       "output": "dist"
     },
     "win": {
-      "signAndEditExecutable": false,
+      "icon": "build/icons/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -33,18 +33,23 @@
       "allowToChangeInstallationDirectory": true
     },
     "files": [
-  "src/**/*",
-  "package.json",
-  "!**/*.map",
-  "!**/tests",
-  "!**/.git"
-]
+      "src/**/*",
+      "package.json",
+      "!**/*.map",
+      "!**/tests",
+      "!**/.git"
+    ]
   },
   "devDependencies": {
     "electron": "^41.3.0",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "electron-icon-builder": "^2.0.1",
+    "sharp": "^0.35.2"
   },
   "dependencies": {
+    "@cliqz/adblocker-electron": "^1.5.1",
+    "better-sqlite3": "^13.0.3",
+    "cross-fetch": "^3.1.5",
     "electron-store": "^8.1.0"
   }
 }

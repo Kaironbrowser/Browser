@@ -35,11 +35,84 @@ function _createSettingControl(feature, key, value, onUpdate) {
     const toggle = document.createElement('input');
     toggle.type = 'checkbox';
     toggle.className = 'feature-toggle';
+    toggle.dataset.key = key;
     toggle.checked = value;
     toggle.style.width = '34px';
     toggle.style.height = '19px';
-    toggle.addEventListener('change', () => onUpdate({ [key]: toggle.checked }));
+    toggle.addEventListener('change', () => {
+      if (SETTINGS_DIAG) console.log('toggle change triggered for', key, 'to', toggle.checked);
+      onUpdate({ [key]: toggle.checked });
+    });
     row.appendChild(toggle);
+    return row;
+  }
+
+  // Secure DNS provider (applied by Chromium on the next launch).
+  if (feature.id === 'dnsOverHttps' && key === 'provider' && typeof value === 'string') {
+    const select = document.createElement('select');
+    select.className = 'feature-select';
+    select.dataset.key = key;
+    const options = [
+      { v: 'off', label: 'Off (use system DNS)' },
+      { v: 'cloudflare', label: 'Cloudflare' },
+      { v: 'quad9', label: 'Quad9' },
+      { v: 'custom', label: 'NextDNS / Custom URL' },
+    ];
+    for (const o of options) {
+      const el = document.createElement('option');
+      el.value = o.v;
+      el.textContent = o.label;
+      select.appendChild(el);
+    }
+    select.value = options.some(option => option.v === value) ? value : 'off';
+    select.addEventListener('change', () => onUpdate(
+      { [key]: select.value },
+      { control: select, previousValue: value }
+    ));
+    row.appendChild(select);
+    return row;
+  }
+
+  // Special-case: Shields mode for adBlocker feature (Off | Standard | Aggressive)
+  if (key === 'mode' && typeof value === 'string') {
+    const select = document.createElement('select');
+    select.className = 'feature-select';
+    select.dataset.key = key;
+    const options = [
+      { v: 'off', label: 'Off' },
+      { v: 'standard', label: 'Standard (network + cosmetic)' },
+      { v: 'aggressive', label: 'Aggressive (network + aggressive host fallback)' },
+    ];
+    for (const o of options) {
+      const el = document.createElement('option');
+      el.value = o.v;
+      el.textContent = o.label;
+      select.appendChild(el);
+    }
+    select.value = value;
+    select.addEventListener('change', () => onUpdate({ [key]: select.value }));
+    row.appendChild(select);
+    return row;
+  }
+
+  // Special-case: Tab Position for themeSystem
+  if (key === 'tabPosition' && typeof value === 'string') {
+    const select = document.createElement('select');
+    select.className = 'feature-select';
+    select.dataset.key = key;
+    const options = [
+      { v: 'sidebar', label: 'Sidebar' },
+      { v: 'top', label: 'Top (Traditional browser style)' },
+    ];
+    for (const o of options) {
+      const el = document.createElement('option');
+      el.value = o.v;
+      el.textContent = o.label;
+      select.appendChild(el);
+    }
+    select.value = value;
+    select.addEventListener('change', () => onUpdate({ [key]: select.value }));
+    row.appendChild(select);
     return row;
   }
 
@@ -47,6 +120,7 @@ function _createSettingControl(feature, key, value, onUpdate) {
   if (typeof value === 'number') {
     const input = document.createElement('input');
     input.type = 'number';
+    input.dataset.key = key;
     input.value = String(value);
     input.addEventListener('change', () => {
       const parsed = Number(input.value);
@@ -59,6 +133,7 @@ function _createSettingControl(feature, key, value, onUpdate) {
   // Array → multiline textarea
   if (Array.isArray(value)) {
     const textarea = document.createElement('textarea');
+    textarea.dataset.key = key;
     textarea.value = value.join('\n');
     textarea.placeholder = 'One entry per line…';
     textarea.rows = Math.min(value.length + 1, 5);
@@ -72,10 +147,20 @@ function _createSettingControl(feature, key, value, onUpdate) {
 
   // String / fallback
   const input = document.createElement('input');
-  input.type = 'text';
+  input.type = feature.id === 'dnsOverHttps' && key === 'customUrl' ? 'url' : 'text';
+  input.dataset.key = key;
   input.value = String(value ?? '');
-  input.placeholder = key;
-  input.addEventListener('change', () => onUpdate({ [key]: input.value }));
+  input.placeholder = feature.id === 'dnsOverHttps' && key === 'customUrl'
+    ? 'https://dns.nextdns.io/your-config-id'
+    : key;
+  input.addEventListener('change', () => {
+    const patch = { [key]: input.value };
+    if (feature.id === 'dnsOverHttps' && key === 'customUrl') {
+      onUpdate(patch, { control: input, previousValue: value });
+      return;
+    }
+    onUpdate(patch);
+  });
   row.appendChild(input);
   return row;
 }
@@ -88,11 +173,11 @@ function _humanizeKey(key) {
     .trim();
 }
 
+// Debug-logging gate — production settings UI emits no console output.
+const SETTINGS_DIAG = false;
+
 // ── MAIN EXPORT ──────────────────────────────────────────────
 export function initSettingsPanel(orion) {
-  // DOM refs
-  const panel           = document.getElementById('settings-panel');
-  const btnOpen         = document.getElementById('btn-open-settings');
   const btnClose        = document.getElementById('btn-close-settings');
   const searchInput     = document.getElementById('settings-search');
   const sidebar         = document.getElementById('settings-sidebar');
@@ -101,37 +186,83 @@ export function initSettingsPanel(orion) {
   const btnResetAll     = document.getElementById('btn-reset-all-settings');
   const btnExport       = document.getElementById('btn-export-settings');
   const btnImport       = document.getElementById('btn-import-settings');
+  const dnsRestartModal = document.getElementById('dns-restart-modal');
+  const btnCancelDnsRestart = document.getElementById('btn-cancel-dns-restart');
+  const btnConfirmDnsRestart = document.getElementById('btn-confirm-dns-restart');
 
   // State
   let snapshot     = { registry: [], state: {} };
   let activeCategory = null;
   let searchQuery    = '';
-
-  // ── OPEN / CLOSE ────────────────────────────────────────────
-  function _openPanel() {
-    panel.classList.remove('hidden');
-    orion.setSettingsPanelVisibility(true);
-    searchInput.focus();
-  }
+  let currentCategoryIds = '';
+  let currentFilteredIds = '';
+  let pendingDnsChange = null;
 
   function _closePanel() {
-    panel.classList.add('hidden');
-    orion.setSettingsPanelVisibility(false);
+    orion.closeSettings();
+  }
+
+  function _showDnsRestartModal(change) {
+    pendingDnsChange = change;
+    dnsRestartModal.hidden = false;
+    btnConfirmDnsRestart.disabled = false;
+    btnCancelDnsRestart.focus();
+  }
+
+  function _cancelDnsChange() {
+    if (pendingDnsChange) {
+      pendingDnsChange.control.value = String(pendingDnsChange.previousValue ?? '');
+    }
+    pendingDnsChange = null;
+    dnsRestartModal.hidden = true;
+  }
+
+  async function _confirmDnsChange() {
+    if (!pendingDnsChange) return;
+    const { patch } = pendingDnsChange;
+    btnConfirmDnsRestart.disabled = true;
+    btnCancelDnsRestart.disabled = true;
+    try {
+      await orion.updateFeatureConfig('dnsOverHttps', patch);
+      await orion.restartApp();
+    } catch (error) {
+      btnConfirmDnsRestart.disabled = false;
+      btnCancelDnsRestart.disabled = false;
+      orion.logError('dns-restart', error?.stack || error?.message || String(error)).catch(() => {});
+    }
   }
 
   // ── CATEGORIES ──────────────────────────────────────────────
   function _getCategories() {
-    return [...new Set(snapshot.registry.map(f => f.category))];
+    return [...new Set(snapshot.registry.filter(f => !f.hidden).map(f => f.category))];
   }
 
   function _renderCategories() {
-    sidebar.innerHTML = '';
     const categories = _getCategories();
     if (!activeCategory && categories.length) activeCategory = categories[0];
+
+    const newCategoryIds = categories.join(',');
+    if (currentCategoryIds === newCategoryIds && sidebar.children.length > 0) {
+      for (const btn of sidebar.children) {
+        const cat = btn.dataset.category;
+        if (cat === activeCategory) {
+          btn.className = 'settings-category-btn active';
+          btn.setAttribute('aria-current', 'page');
+        } else {
+          btn.className = 'settings-category-btn';
+          btn.setAttribute('aria-current', 'false');
+        }
+      }
+      return;
+    }
+    
+    currentCategoryIds = newCategoryIds;
+    sidebar.innerHTML = '';
 
     for (const cat of categories) {
       const meta = _getCategoryMeta(cat);
       const btn = document.createElement('button');
+      btn.dataset.category = cat;
       btn.className = `settings-category-btn${cat === activeCategory ? ' active' : ''}`;
       btn.setAttribute('aria-current', cat === activeCategory ? 'page' : 'false');
       btn.innerHTML = `${meta.icon}<span>${_sanitize(meta.label)}</span>`;
@@ -153,10 +284,10 @@ export function initSettingsPanel(orion) {
 
   function _renderFeatures() {
     const query = searchQuery.toLowerCase().trim();
-    featureList.innerHTML = '';
 
     // When searching, show across all categories
     const filtered = snapshot.registry.filter(f => {
+      if (f.hidden) return false; // inert/not-yet-wired features are never shown
       if (query) {
         return (
           f.name.toLowerCase().includes(query) ||
@@ -166,6 +297,42 @@ export function initSettingsPanel(orion) {
       }
       return f.category === activeCategory;
     });
+
+    const newFilteredIds = filtered.map(f => f.id).join(',');
+    const isStructuralChange = (currentFilteredIds !== newFilteredIds) || !featureList.children.length;
+
+    if (!isStructuralChange) {
+      for (const feature of filtered) {
+        const runtime = _getRuntime(feature.id);
+        const card = document.getElementById(`feature-card-${feature.id}`);
+        if (!card) continue;
+        
+        const mainToggle = document.getElementById(`feature-main-toggle-${feature.id}`);
+        if (mainToggle && mainToggle.checked !== !!runtime.enabled) {
+          mainToggle.checked = !!runtime.enabled;
+        }
+
+        const runtimeSettings = runtime.settings || {};
+        for (const [key, value] of Object.entries(runtimeSettings)) {
+          const control = card.querySelector(`[data-key="${key}"]`);
+          if (!control) continue;
+          
+          if (control.type === 'checkbox') {
+            if (control.checked !== value) control.checked = value;
+          } else if (control.tagName === 'TEXTAREA') {
+            const strVal = Array.isArray(value) ? value.join('\n') : String(value);
+            if (control.value !== strVal) control.value = strVal;
+          } else {
+            const strVal = String(value);
+            if (control.value !== strVal) control.value = strVal;
+          }
+        }
+      }
+      return;
+    }
+
+    currentFilteredIds = newFilteredIds;
+    featureList.innerHTML = '';
 
     if (!filtered.length) {
       featureList.innerHTML = `
@@ -189,6 +356,7 @@ export function initSettingsPanel(orion) {
       const card = document.createElement('article');
       card.className = 'feature-card';
       card.setAttribute('role', 'listitem');
+      card.id = `feature-card-${feature.id}`;
 
       // Top row: label + toggle
       const topRow = document.createElement('div');
@@ -203,11 +371,13 @@ export function initSettingsPanel(orion) {
       `;
 
       const toggle = document.createElement('input');
+      toggle.id = `feature-main-toggle-${feature.id}`;
       toggle.className = 'feature-toggle';
       toggle.type = 'checkbox';
       toggle.checked = !!runtime.enabled;
       toggle.setAttribute('aria-label', `Toggle ${feature.name}`);
       toggle.addEventListener('change', () => {
+        if (SETTINGS_DIAG) console.log('feature toggle change triggered for', feature.id, 'to', toggle.checked);
         // Optimistic UI — immediately reflect the change
         toggle.checked
           ? orion.enableFeature(feature.id)
@@ -240,11 +410,24 @@ export function initSettingsPanel(orion) {
               feature,
               key,
               value,
-              (patch) => orion.updateFeatureConfig(feature.id, patch)
+              (patch, change) => {
+                if (feature.id === 'dnsOverHttps' && (key === 'provider' || key === 'customUrl')) {
+                  _showDnsRestartModal({ ...change, patch });
+                  return;
+                }
+                return orion.updateFeatureConfig(feature.id, patch);
+              }
             )
           );
         }
         card.appendChild(settingsBox);
+      }
+
+      if (feature.id === 'dnsOverHttps') {
+        const restartNote = document.createElement('p');
+        restartNote.style.cssText = 'margin:10px 0 0;font-size:11.5px;color:var(--text-secondary);';
+        restartNote.textContent = 'Restart required. Chromium tries Secure DNS first and falls back to system DNS on timeout.';
+        card.appendChild(restartNote);
       }
 
       featureList.appendChild(card);
@@ -299,6 +482,7 @@ export function initSettingsPanel(orion) {
 
   // ── APPLY SETTINGS (from main process) ───────────────────────
   function applySettings(incoming) {
+    if (SETTINGS_DIAG) console.log('applySettings called with', incoming);
     snapshot = incoming;
     _renderCategories();
     _renderFeatures();
@@ -310,23 +494,13 @@ export function initSettingsPanel(orion) {
 
   // ── EVENT BINDING ────────────────────────────────────────────
   function bindEvents() {
-    btnOpen.addEventListener('click', _openPanel);
     btnClose.addEventListener('click', _closePanel);
+    btnCancelDnsRestart.addEventListener('click', _cancelDnsChange);
+    btnConfirmDnsRestart.addEventListener('click', _confirmDnsChange);
 
-    // Click-outside to close
-    panel.addEventListener('click', (e) => {
-      if (e.target === panel) _closePanel();
-    });
-
-    // Escape key
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !panel.classList.contains('hidden')) {
+      if (e.key === 'Escape') {
         _closePanel();
-      }
-      // ⌘, / Ctrl+, — open settings
-      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
-        e.preventDefault();
-        panel.classList.contains('hidden') ? _openPanel() : _closePanel();
       }
     });
 

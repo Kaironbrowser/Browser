@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Insecure Connection Blocked</title>
+  <style>
+    :root {
+      --bg-color: #000000;
+      --text-primary: #ffffff;
+      --text-secondary: #a0a0a0;
+      --border-color: #333333;
+      --btn-bg: #e0e0e0;
+      --btn-text: #000000;
+      --grid-color: rgba(255, 255, 255, 0.03);
+      --focus-outline: rgba(255, 255, 255, 0.5);
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-color);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      text-align: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Refined background grid with radial mask */
+    body::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-image:
+        linear-gradient(var(--grid-color) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+      background-size: 40px 40px;
+      mask-image: radial-gradient(circle at center, transparent 0%, black 80%);
+      -webkit-mask-image: radial-gradient(circle at center, transparent 0%, black 80%);
+      pointer-events: none;
+    }
+
+    @keyframes entrance {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .container {
+      max-width: 600px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      z-index: 1;
+      animation: entrance 200ms ease-out forwards;
+    }
+
+    .icon-container {
+      margin-bottom: 30px;
+    }
+
+    .hexagon-icon {
+      width: 80px;
+      height: 92px;
+    }
+
+    .hex {
+      fill: rgba(255, 255, 255, 0.03);
+      stroke: white;
+      stroke-width: 2.8;
+      /* Polished stroke width */
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 700;
+      margin: 0 0 16px 0;
+      letter-spacing: -0.5px;
+    }
+
+    p {
+      font-size: 16px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin: 0 0 32px 0;
+      max-width: 480px;
+    }
+
+    .url-box {
+      width: 100%;
+      max-width: 440px;
+      padding: 14px 20px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--text-primary);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 14px;
+      margin-bottom: 40px;
+      text-align: left;
+      overflow-wrap: break-word;
+      box-sizing: border-box;
+      user-select: text;
+    }
+
+    .actions {
+      display: flex;
+      gap: 16px;
+      width: 100%;
+      max-width: 440px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 14px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 4px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      outline: none;
+    }
+
+    .btn:focus-visible {
+      outline: 2px solid var(--focus-outline);
+      outline-offset: 3px;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    /* Swapped Button Prominence: Go back is now primary */
+    .btn-primary {
+      background-color: var(--btn-bg);
+      color: var(--btn-text);
+      border: 1px solid var(--btn-bg);
+    }
+
+    .btn-primary:hover {
+      background-color: #ffffff;
+    }
+
+    /* Swapped Button Prominence: Proceed is now secondary/outlined */
+    .btn-secondary {
+      background-color: transparent;
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--text-secondary);
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="icon-container">
+      <!-- Polished Hexagon with exclamation mark -->
+      <svg class="hexagon-icon" viewBox="0 0 80 92" xmlns="http://www.w3.org/2000/svg">
+        <path d="M40 2.5L77.5 24.15V67.85L40 89.5L2.5 67.85V24.15L40 2.5Z" class="hex" />
+        <rect x="38" y="25" width="4" height="30" rx="1" fill="white" />
+        <circle cx="40" cy="65" r="3" fill="white" />
+      </svg>
+    </div>
+
+    <h1>This connection is not secure</h1>
+
+    <p>Kairon blocked this page because it couldn't load it over a secure connection. Continuing over HTTP could expose
+      information you send or receive.</p>
+
+    <div class="url-box" id="blocked-url">
+      <!-- URL will be inserted here -->
+    </div>
+
+    <div class="actions">
+      <!-- Visually quieter option -->
+      <a href="#" class="btn btn-secondary" id="proceed-link">Proceed to insecure site</a>
+      <!-- Visually prominent safe option -->
+      <button class="btn btn-primary" onclick="history.length > 1 ? history.back() : location.replace('about:blank')">Go
+        back</button>
+    </div>
+  </div>
+
+  <script>
+    // Read the blocked URL from the query parameter
+    var params = new URLSearchParams(window.location.search);
+    var blockedUrl = params.get('url');
+
+    // Default URL for demonstration if none provided
+    if (!blockedUrl) {
+      blockedUrl = "http://some-long-subdomain.example-insecure-site.com/some/deep/path?with=query&params=here";
+    }
+
+    if (blockedUrl) {
+      // Use textContent for safe insertion
+      document.getElementById('blocked-url').textContent = blockedUrl;
+      document.getElementById('proceed-link').href = blockedUrl;
+    }
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Orion Overlay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      width: 100%;
+      background: transparent;
+      overflow: hidden;
+      pointer-events: none;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    #overlay-root {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    #address-suggestions {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1000;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      overflow: hidden;
+      margin-top: 0;
+      display: none;
+      pointer-events: auto;
+    }
+    .address-suggestion-item {
+      width: 100%;
+      border: none;
+      border-radius: 0;
+      padding: 12px 20px;
+      min-height: 44px;
+      text-align: left;
+      background: transparent;
+      color: #EDEDED;
+      font-size: 14px;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      line-height: 1.4;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      transition: all 150ms ease;
+      pointer-events: auto;
+    }
+    .address-suggestion-item:hover,
+    .address-suggestion-item[aria-selected="true"] {
+      background: rgba(255,255,255,0.06);
+      color: #FFFFFF;
+    }
+    .address-suggestion-item span {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      overflow: hidden;
+    }
+    .address-suggestion-item span:last-child {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div id="overlay-root">
+    <div id="address-suggestions" role="listbox"></div>
+  </div>
+  <script src="overlay.js"></script>
+</body>
+</html>

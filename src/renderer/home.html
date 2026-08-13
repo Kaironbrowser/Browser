@@ -3,84 +3,95 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Orion — Home</title>
+  <title>Kairon — Home</title>
+  <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:         #08090f;
-      --surface-0:  rgba(255,255,255,0.028);
-      --surface-1:  rgba(255,255,255,0.052);
-      --surface-2:  rgba(255,255,255,0.08);
-      --border-0:   rgba(255,255,255,0.055);
-      --border-1:   rgba(255,255,255,0.10);
-      --text:       #eef0f8;
-      --text-2:     #8b93b5;
-      --text-3:     #555e80;
-      --accent-1:   #5b6fff;
-      --accent-2:   #3ac6ff;
-      --r-md:       10px;
-      --r-lg:       14px;
-      --r-xl:       18px;
-      --r-2xl:      24px;
-      --r-full:     9999px;
-      --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);
-      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+      /* Backgrounds */
+      --bg: #000000;
+      --surface-1: #050505;
+      --surface-2: #0A0A0A;
+      --surface-3: #111111;
+      --surface-4: #1A1A1A;
+      /* Borders & Highlights */
+      --border: rgba(255,255,255,0.07);
+      --border-strong: rgba(255,255,255,0.10);
+      --highlight: rgba(255,255,255,0.06);
+      --shadow-highlight: inset 0 1px 0 rgba(255,255,255,0.06);
+      /* Text */
+      --text: #eef0f8;
+      --text-secondary: #8b93b5;
+      --text-tertiary: #555e80;
+      --text-muted: #555e80;
+      /* Accent */
+     --accent: #000000;
+     --accent-soft: rgba(0,0,0,0.12);
+     --accent-faint: rgba(0,0,0,0.06);
+      /* Spacing */
+      --s-1: 4px;
+      --s-2: 8px;
+      --s-3: 12px;
+      --s-4: 16px;
+      --s-5: 20px;
+      /* Radius */
+      --r-sm: 6px;
+      --r-md: 8px;
+      --r-lg: 10px;
+      --r-full: 9999px;
+      /* Shadows */
+      --shadow-sm: 0 2px 12px rgba(0,0,0,0.85);
+      --shadow-md: 0 4px 24px rgba(0,0,0,0.95);
+      --shadow-lg: 0 8px 48px rgba(0,0,0,1);
+      --shadow-focus: 0 0 0 2px var(--accent);
+      /* Motion */
+      --dur-fast: 180ms;
+      --dur-base: 260ms;
+      --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+      /* Typography */
+      --font-ui: 'Geist', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+      --font-mono: 'Geist Mono', 'SF Mono', monospace;
     }
 
     html, body {
       width: 100%;
       min-height: 100vh;
-      font-family: 'Geist', -apple-system, sans-serif;
+      font-family: var(--font-ui);
       color: var(--text);
-      background: var(--bg);
+      background: #000000;
       -webkit-font-smoothing: antialiased;
     }
 
     body {
-      background:
-        radial-gradient(ellipse 90% 55% at 15% -5%, rgba(91,111,255,0.14) 0%, transparent 55%),
-        radial-gradient(ellipse 70% 40% at 85% 105%, rgba(58,198,255,0.08) 0%, transparent 55%),
-        radial-gradient(ellipse 50% 30% at 50% 50%, rgba(91,111,255,0.03) 0%, transparent 70%),
-        var(--bg);
       padding: 0;
-      display: grid;
-      grid-template-rows: 1fr auto;
-      min-height: 100vh;
-    }
-
-    /* ── NOISE TEXTURE OVERLAY ── */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
-      pointer-events: none;
-      z-index: 0;
-      opacity: 0.6;
+      display: flex;
+      flex-direction: column;
     }
 
     .page-content {
       position: relative;
       z-index: 1;
+      flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 80px 40px 60px;
-      gap: 52px;
+      padding: 40px;
+      gap: 40px;
     }
 
-    /* ── HERO ── */
+    /* Hero */
     .hero {
       text-align: center;
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 16px;
-      animation: fadeUp 0.6s var(--ease-out) both;
+      animation: fadeIn var(--dur-base) 0.08s var(--ease-out) both;
     }
 
     .hero-eyebrow {
@@ -89,193 +100,169 @@
       gap: 8px;
       font-size: 11px;
       font-weight: 500;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.15em;
       text-transform: uppercase;
-      color: var(--text-3);
-      padding: 5px 12px;
-      border: 1px solid var(--border-0);
+      color: #FFFFFF;
+      padding: 6px 14px;
       border-radius: var(--r-full);
-      background: var(--surface-0);
+      background: rgba(0, 0, 0, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
     }
 
     .hero-eyebrow .dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
-      animation: pulse 2s ease-in-out infinite;
-    }
+     width: 6px;
+     height: 6px;
+     border-radius: 50%;
+     background: #3b82f6;
+     animation: pulse 2.4s var(--ease-out) infinite;
+   }
 
     .hero-time {
-      font-size: 64px;
+      font-size: 56px;
       font-weight: 300;
-      letter-spacing: -0.04em;
+      letter-spacing: -0.03em;
       line-height: 1;
-      background: linear-gradient(135deg, #eef0f8 30%, #8b93b5 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: var(--text);
     }
 
     .hero-date {
-      font-size: 14px;
-      color: var(--text-2);
+      font-size: 16px;
+      color: var(--text-secondary);
       font-weight: 400;
       letter-spacing: 0.01em;
     }
 
-    /* ── SEARCH ── */
+    /* Search */
     .search-section {
-      width: 100%;
-      max-width: 640px;
-      animation: fadeUp 0.6s 0.08s var(--ease-out) both;
+      width: min(100%, 750px);
+      margin: 0 auto;
+      animation: fadeIn var(--dur-base) 0.08s var(--ease-out) both;
     }
 
     .search-wrap {
       display: flex;
       align-items: center;
       gap: 10px;
-      height: 50px;
-      padding: 0 8px 0 20px;
-      border-radius: var(--r-full);
-      border: 1px solid var(--border-1);
-      background: var(--surface-1);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      box-shadow:
-        0 4px 24px rgba(0,0,0,0.35),
-        inset 0 1px 0 rgba(255,255,255,0.05);
-      transition:
-        border-color 200ms var(--ease-out),
-        box-shadow 200ms var(--ease-out),
-        transform 200ms var(--ease-spring);
+      height: 52px;
+      padding: 0 12px 0 18px;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(15, 15, 15, 0.95);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: all var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-bounce);
     }
 
     .search-wrap:focus-within {
-      border-color: rgba(91,111,255,0.55);
-      box-shadow:
-        0 0 0 2.5px rgba(91,111,255,0.22),
-        0 8px 32px rgba(0,0,0,0.4),
-        inset 0 1px 0 rgba(255,255,255,0.06);
-      transform: translateY(-1px);
-    }
+     border-color: rgba(255, 255, 255, 0.4);
+     box-shadow: 0 0 0 3px rgba(255,255,255,0.1), 0 12px 40px rgba(0, 0, 0, 0.6);
+     transform: translateY(-2px);
+     background: rgba(20, 20, 20, 0.98);
+   }
 
-    .search-icon {
-      color: var(--text-3);
-      flex-shrink: 0;
-      display: flex;
-    }
+   .search-icon {
+     color: var(--text-tertiary);
+     flex-shrink: 0;
+     display: flex;
+   }
 
-    .search-input {
-      flex: 1;
-      border: none;
-      background: transparent;
-      color: var(--text);
-      font-size: 15px;
-      font-family: 'Geist', sans-serif;
-      font-weight: 400;
-      outline: none;
-    }
+   .search-input {
+     flex: 1;
+     border: none;
+     background: transparent;
+     color: var(--text-primary);
+     font-size: 16px;
+     font-family: var(--font-ui);
+     font-weight: 400;
+     outline: none;
+   }
 
-    .search-input::placeholder { color: var(--text-3); }
+   .search-input::placeholder { color: var(--text-muted); }
 
-    .search-btn {
-      height: 36px;
-      padding: 0 18px;
-      border-radius: var(--r-full);
-      border: none;
-      background: linear-gradient(135deg, var(--accent-1) 0%, var(--accent-2) 100%);
-      color: #fff;
-      font-size: 13px;
-      font-family: 'Geist', sans-serif;
-      font-weight: 600;
-      cursor: pointer;
-      box-shadow: 0 2px 10px rgba(91,111,255,0.35);
-      transition:
-        transform 150ms var(--ease-spring),
-        box-shadow 150ms var(--ease-out);
-      flex-shrink: 0;
-    }
+   .search-btn {
+     height: 38px;
+     padding: 0 22px;
+     border-radius: 20px;
+     border: 1px solid rgba(255, 255, 255, 0.15);
+     background: rgba(0,0,0,0.5);
+     color: var(--text-primary);
+     font-size: 14px;
+     font-family: var(--font-ui);
+     font-weight: 500;
+     cursor: pointer;
+     transition: all var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-spring);
+     flex-shrink: 0;
+   }
 
-    .search-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 16px rgba(91,111,255,0.48);
-    }
-    .search-btn:active { transform: scale(0.95); }
+   .search-btn:hover {
+     transform: translateY(-1px);
+     background: rgba(0,0,0,0.8);
+     border-color: rgba(255,255,255,0.4);
+   }
 
-    /* ── SPEED DIAL ── */
+    .search-btn:active { transform: scale(0.96); }
+
+    /* Speed Dial */
     .dial-section {
-      width: 100%;
-      max-width: 780px;
-      animation: fadeUp 0.6s 0.15s var(--ease-out) both;
+      width: min(100%, 750px);
+      margin: 0 auto;
+      animation: fadeIn var(--dur-base) 0.15s var(--ease-out) both;
     }
 
     .section-label {
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--text-3);
-      margin-bottom: 14px;
-      padding-left: 2px;
+      color: var(--text-tertiary);
+      margin-bottom: 16px;
+      padding-left: 4px;
     }
 
     .dial-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    @media (max-width: 700px) {
+      .dial-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
     }
 
     .dial {
       position: relative;
-      border: 1px solid var(--border-0);
-      border-radius: var(--r-xl);
-      background: var(--surface-0);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: rgba(15, 15, 15, 0.9);
       color: var(--text);
       text-decoration: none;
-      min-height: 72px;
+      min-height: 90px;
       display: flex;
       flex-direction: column;
       justify-content: center;
-      gap: 3px;
-      padding: 14px 16px;
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      gap: 4px;
+      padding: 16px 18px;
       overflow: hidden;
-      transition:
-        border-color 160ms var(--ease-out),
-        background 160ms var(--ease-out),
-        transform 200ms var(--ease-spring),
-        box-shadow 200ms var(--ease-out);
-    }
-
-    /* Accent glow on hover */
-    .dial::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border-radius: inherit;
-      background: linear-gradient(135deg, rgba(91,111,255,0.07) 0%, rgba(58,198,255,0.03) 100%);
-      opacity: 0;
-      transition: opacity 200ms var(--ease-out);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: all var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-bounce);
     }
 
     .dial:hover {
-      border-color: var(--border-1);
-      background: var(--surface-1);
+      border-color: rgba(255, 255, 255, 0.15);
+      background: rgba(25, 25, 25, 0.95);
       transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(0,0,0,0.32), 0 2px 6px rgba(0,0,0,0.20);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.4);
     }
 
-    .dial:hover::before { opacity: 1; }
-    .dial:active { transform: scale(0.97); }
+    .dial:active { transform: scale(0.98); }
 
     .dial-favicon {
-      width: 20px;
-      height: 20px;
-      border-radius: 6px;
-      margin-bottom: 4px;
-      background: var(--surface-2);
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      background: rgba(30, 30, 30, 0.95);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -284,16 +271,17 @@
       position: relative;
       z-index: 1;
       flex-shrink: 0;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
     }
 
     .dial-favicon img {
-      width: 16px;
-      height: 16px;
+      width: 18px;
+      height: 18px;
       object-fit: contain;
     }
 
     .dial strong {
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
       white-space: nowrap;
       overflow: hidden;
@@ -304,65 +292,66 @@
 
     .dial span {
       font-size: 11px;
-      color: var(--text-3);
+      color: var(--text-tertiary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      font-family: 'Geist Mono', monospace;
+      font-family: var(--font-mono);
       position: relative;
       z-index: 1;
     }
 
-    /* ── FOOTER ── */
+    /* Footer */
     .page-footer {
       position: relative;
       z-index: 1;
-      padding: 20px 40px;
+      padding: 24px 40px;
       display: flex;
       align-items: center;
       justify-content: center;
-      border-top: 1px solid var(--border-0);
-      animation: fadeUp 0.6s 0.22s var(--ease-out) both;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      animation: fadeIn var(--dur-base) 0.22s var(--ease-out) both;
+      background: transparent;
     }
 
     .footer-hint {
-      font-size: 11.5px;
-      color: var(--text-3);
+      font-size: 12px;
+      color: var(--text-tertiary);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
 
     .kbd {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      height: 18px;
-      min-width: 18px;
-      padding: 0 5px;
-      border-radius: 4px;
-      border: 1px solid var(--border-1);
-      background: var(--surface-1);
-      font-size: 10px;
-      font-family: 'Geist Mono', monospace;
-      color: var(--text-2);
+      height: 20px;
+      min-width: 20px;
+      padding: 0 6px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(30, 30, 30, 0.95);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
       font-weight: 500;
     }
 
-    /* ── KEYFRAMES ── */
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(16px); }
-      to   { opacity: 1; transform: none; }
+    /* Keyframes */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translate3d(0, 20px, 0); }
+      to   { opacity: 1; transform: translate3d(0, 0, 0); }
     }
 
     @keyframes pulse {
-      0%, 100% { opacity: 0.4; transform: scale(0.85); }
-      50%       { opacity: 1;   transform: scale(1.1); }
+      0%, 100% { opacity: 0.5; transform: scale3d(0.85, 0.85, 1); }
+      50%       { opacity: 1;   transform: scale3d(1.1, 1.1, 1); }
     }
 
-    /* ── SCROLLBAR ── */
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-thumb { background: var(--border-1); border-radius: 999px; }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--r-full); }
   </style>
 </head>
 <body>
@@ -383,9 +372,9 @@
     <section class="search-section">
       <form class="search-wrap" id="search-form" autocomplete="off">
         <span class="search-icon">
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-            <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.4"/>
-            <path d="M10.5 10.5l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <circle cx="7.5" cy="7.5" r="5.5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M11.5 11.5l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
         </span>
         <input
@@ -482,9 +471,9 @@
   </footer>
 
   <script>
-    // ── CLOCK ──────────────────────────────────────────────
+    // Clock & greeting
     const clockEl = document.getElementById('clock');
-    const dateEl  = document.getElementById('date-display');
+    const dateEl = document.getElementById('date-display');
     const greetEl = document.getElementById('greeting-text');
 
     function updateClock() {
@@ -509,8 +498,8 @@
     updateClock();
     setInterval(updateClock, 5000);
 
-    // ── SEARCH ─────────────────────────────────────────────
-    const form  = document.getElementById('search-form');
+    // Search form
+    const form = document.getElementById('search-form');
     const input = document.getElementById('search-input');
 
     form.addEventListener('submit', (e) => {
@@ -535,5 +524,6 @@
       };
     });
   </script>
+
 </body>
 </html>

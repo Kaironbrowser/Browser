@@ -17,8 +17,11 @@ export function createTabStateStore() {
       title: typeof tab.title === 'string' ? tab.title : 'New Tab',
       url: typeof tab.url === 'string' ? tab.url : 'about:blank',
       loading: !!tab.loading,
+      sleeping: !!tab.sleeping,
+      pinned: !!tab.pinned,
       canGoBack: !!tab.canGoBack,
       canGoForward: !!tab.canGoForward,
+      zoomFactor: typeof tab.zoomFactor === 'number' ? tab.zoomFactor : 1.0,
       favicon: null,
     }));
     activeTabId = Number.isInteger(payload.activeTabId) ? payload.activeTabId : null;
