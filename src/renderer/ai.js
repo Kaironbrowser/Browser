@@ -9,11 +9,11 @@ function _md(text) {
   return text
     // Code blocks (must come before inline code)
     .replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) =>
-      `<pre style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:10px 12px;overflow-x:auto;font-family:var(--font-mono);font-size:11.5px;line-height:1.6;margin:6px 0"><code>${_escHtml(code.trim())}</code></pre>`
+      `<pre style="background:var(--ai-code-bg);border:1px solid var(--ai-code-border);border-radius:8px;padding:10px 12px;overflow-x:auto;font-family:var(--font-mono);font-size:11.5px;line-height:1.6;margin:6px 0"><code>${_escHtml(code.trim())}</code></pre>`
     )
     // Inline code
     .replace(/`([^`]+)`/g, (_, c) =>
-      `<code style="background:rgba(255,255,255,0.08);border-radius:4px;padding:1px 5px;font-family:var(--font-mono);font-size:11.5px">${_escHtml(c)}</code>`
+      `<code style="background:var(--ai-inline-code-bg);border-radius:4px;padding:1px 5px;font-family:var(--font-mono);font-size:11.5px">${_escHtml(c)}</code>`
     )
     // Bold
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -21,7 +21,7 @@ function _md(text) {
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     // Links
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g,
-      '<a href="$2" style="color:var(--text-accent);text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.22)" target="_blank" rel="noopener">$1</a>'
+      '<a href="$2" style="color:var(--text-accent);text-decoration:none;border-bottom:1px solid var(--ai-link-underline)" target="_blank" rel="noopener">$1</a>'
     )
     // Unordered list items
     .replace(/^[\*\-] (.+)$/gm, '<li style="margin-left:14px;margin-top:3px">$1</li>')
@@ -32,7 +32,7 @@ function _md(text) {
     .replace(/^## (.+)$/gm,  '<p style="font-size:14px;font-weight:700;color:var(--text-primary);margin:12px 0 5px">$1</p>')
     .replace(/^# (.+)$/gm,   '<p style="font-size:15px;font-weight:700;color:var(--text-primary);margin:14px 0 6px">$1</p>')
     // Horizontal rule
-    .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:12px 0"/>')
+    .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--ai-hr-border);margin:12px 0"/>')
     // Line breaks → paragraph breaks
     .replace(/\n\n/g, '</p><p style="margin-top:6px">')
     .replace(/\n/g, '<br/>');
@@ -108,8 +108,8 @@ export function initAiPanel(kairon) {
       ">
         <div style="
             width:48px;height:48px;border-radius:50%;
-            background:rgba(207,175,108,0.08);
-            border:1px solid rgba(207,175,108,0.12);
+            background:var(--ai-welcome-avatar-bg);
+            border:1px solid var(--ai-welcome-avatar-border);
             display:flex;align-items:center;justify-content:center;
           ">
             ${AVATAR_AI}
@@ -163,14 +163,14 @@ export function initAiPanel(kairon) {
     avatar.className = 'msg-avatar';
     if (isUser) {
       avatar.textContent = AVATAR_USER;
-      avatar.style.background = 'rgba(255,255,255,0.02)';
-      avatar.style.borderColor = 'rgba(255,255,255,0.04)';
+      avatar.style.background = 'var(--ai-user-avatar-bg)';
+      avatar.style.borderColor = 'var(--ai-user-avatar-border)';
       avatar.style.color = 'var(--text-tertiary)';
     } else {
       avatar.innerHTML = AVATAR_AI;
-      avatar.style.background = 'rgba(207,175,108,0.08)';
-      avatar.style.borderColor = 'rgba(207,175,108,0.12)';
-      avatar.style.color = '#111';
+      avatar.style.background = 'var(--ai-welcome-avatar-bg)';
+      avatar.style.borderColor = 'var(--ai-welcome-avatar-border)';
+      avatar.style.color = 'var(--ai-avatar-ai-color)';
     }
 
     const bubble = document.createElement('div');
@@ -386,7 +386,7 @@ export function initAiPanel(kairon) {
         width:30px;height:30px;
         border-radius:50%;
         border:1px solid var(--border-1);
-        background:rgba(13,15,26,0.92);
+        background:var(--ai-scroll-btn-bg);
         backdrop-filter:blur(12px);
         color:var(--text-secondary);
         display:inline-flex;

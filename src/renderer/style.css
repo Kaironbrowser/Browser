@@ -109,6 +109,22 @@
      --warning-hover-text: #ffd680;
      --success-tint:      rgba(52, 211, 155, 0.18);
      --success-hover-text: #7fffd4;
+
+     /* Component tokens — AI panel + shields menu. Dark values are the exact
+        pre-theme colors (unchanged); light values live in the light theme
+        block below so every Kairon surface follows the global Theme Mode. */
+     --ai-code-bg:           rgba(0, 0, 0, 0.35);
+     --ai-code-border:       rgba(255, 255, 255, 0.07);
+     --ai-inline-code-bg:    rgba(255, 255, 255, 0.08);
+     --ai-link-underline:    rgba(255, 255, 255, 0.22);
+     --ai-hr-border:         rgba(255, 255, 255, 0.08);
+     --ai-scroll-btn-bg:     rgba(13, 15, 26, 0.92);
+     --ai-user-avatar-bg:    rgba(255, 255, 255, 0.02);
+     --ai-user-avatar-border: rgba(255, 255, 255, 0.04);
+     --ai-avatar-ai-color:   #111111;
+     --ai-welcome-avatar-bg: rgba(207, 175, 108, 0.08);
+     --ai-welcome-avatar-border: rgba(207, 175, 108, 0.12);
+     --shields-border:       rgba(255, 255, 255, 0.06);
    
      /* Motion */
      --dur-micro:  90ms;
@@ -216,6 +232,22 @@
      --warning-hover-text: #8a6115;
      --success-tint:       rgba(47, 174, 126, 0.14);
      --success-hover-text: #1e7a58;
+
+     /* Component tokens — AI panel + shields menu light values: dark ink
+        chips, subtle gray borders, and an off-white scroll button so these
+        surfaces mirror the rest of the chrome. */
+     --ai-code-bg:           rgba(0, 0, 0, 0.06);
+     --ai-code-border:       rgba(0, 0, 0, 0.12);
+     --ai-inline-code-bg:    rgba(0, 0, 0, 0.06);
+     --ai-link-underline:    rgba(0, 0, 0, 0.25);
+     --ai-hr-border:         rgba(0, 0, 0, 0.10);
+     --ai-scroll-btn-bg:     rgba(255, 255, 255, 0.95);
+     --ai-user-avatar-bg:    rgba(0, 0, 0, 0.03);
+     --ai-user-avatar-border: rgba(0, 0, 0, 0.07);
+     --ai-avatar-ai-color:   #1a1a1a;
+     --ai-welcome-avatar-bg: rgba(207, 175, 108, 0.12);
+     --ai-welcome-avatar-border: rgba(207, 175, 108, 0.22);
+     --shields-border:       rgba(0, 0, 0, 0.14);
    }
    
    /* While a theme flip is in progress, transitions are suspended so the whole
@@ -953,6 +985,14 @@
      font-weight: 500;
      letter-spacing: 0.01em;
    }
+
+   /* The shield + tracker-pill glyphs carry the semantic success color via the
+      theme token (dark value #34d39b is unchanged; light resolves to the
+      darker light-theme green). */
+   #shield svg path,
+   #tracker-pill svg path {
+     fill: var(--color-success);
+   }
    
    #page-title {
      max-width: 50%;
@@ -1208,7 +1248,7 @@
    body[data-tab-position="top"] {
      padding: 0;
      gap: 0;
-     background: black;
+     background: var(--bg-base);
    }
    
    body[data-tab-position="top"] #left-rail {

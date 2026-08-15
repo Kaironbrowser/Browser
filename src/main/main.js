@@ -1449,7 +1449,10 @@ function openLinkInNewWindow(url) {
       height: 800,
       minWidth: 800,
       minHeight: 500,
-      backgroundColor: '#080810',
+      // Match the pre-load background to the persisted theme so a Kairon-owned
+      // window never flashes the wrong dark/light color before the page paints
+      // (same pattern as the main window). The page itself is never restyled.
+      backgroundColor: getCurrentThemeMode() === 'light' ? '#f0f0f0' : '#080810',
       icon: getAppIcon(),
       show: false,
       webPreferences: {

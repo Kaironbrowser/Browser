@@ -1142,7 +1142,9 @@ export function createUiController(kairon, store, onLayoutChange) {
     if (blockedNum) blockedNum.textContent = String(blockedCount);
     if (notBlockedNum) notBlockedNum.textContent = String(notBlocked);
     if (wasBlocked && blockedNum) {
-      blockedNum.style.color = '#34d39b';
+      // Theme token: resolves to #34d39b in dark mode (unchanged) and the
+      // darker light-theme green in light mode.
+      blockedNum.style.color = 'var(--color-success)';
       setTimeout(() => { blockedNum.style.color = ''; }, 500);
     }
   }
@@ -1248,7 +1250,7 @@ export function createUiController(kairon, store, onLayoutChange) {
         shieldsMenu.style.zIndex = '9999';
         shieldsMenu.style.minWidth = '200px';
         shieldsMenu.style.background = 'var(--surface-1)';
-        shieldsMenu.style.border = '1px solid rgba(255,255,255,0.06)';
+        shieldsMenu.style.border = '1px solid var(--shields-border)';
         shieldsMenu.style.borderRadius = '8px';
         shieldsMenu.style.boxShadow = '0 8px 30px rgba(0,0,0,0.45)';
         shieldsMenu.style.padding = '8px';
