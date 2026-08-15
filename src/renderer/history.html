@@ -11,6 +11,7 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
+    color-scheme: dark;
     --bg-base:          #000000;
     --grid-line:        rgba(255,255,255,0.035);
     --grid-size:        36px;
@@ -41,6 +42,56 @@
     --font-mono:   'Geist Mono', 'SF Mono', monospace;
 
     --glow-color: rgba(255, 255, 255, 0.15);
+    --overlay-bg:       rgba(0, 0, 0, 0.7);
+    --modal-bg:         #121212;
+    --modal-shadow:     0 16px 48px rgba(0, 0, 0, 0.6);
+    --confirm-hover-bg: #ffffff;
+    --illustration-hex: #141414;
+    --illustration-ink: #ffffff;
+  }
+
+  /* ── LIGHT THEME ──────────────────────────────────────────
+     Monochrome light palette matching the shared Kairon theme vocabulary
+     (settings/home/history): off-white backgrounds, dark ink text, subtle
+     gray borders. Applied via data-theme on <html> (set before first paint
+     from the ?theme= query and live-synced from the FeatureStore). */
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --bg-base:          #f0f0f0;
+    --grid-line:        rgba(0, 0, 0, 0.04);
+    --bg-surface:       #ffffff;
+    --bg-card:          #fafafa;
+    --bg-hover:         rgba(0, 0, 0, 0.05);
+    --bg-active:        rgba(0, 0, 0, 0.08);
+    --border-0:         rgba(0, 0, 0, 0.08);
+    --border-1:         rgba(0, 0, 0, 0.14);
+    --border-focus:     rgba(0, 0, 0, 0.35);
+    --text-primary:     #141414;
+    --text-secondary:   #555555;
+    --text-tertiary:    #777777;
+    --accent:           #1a1a1a;
+    --glow-color:       rgba(0, 0, 0, 0.08);
+    --overlay-bg:       rgba(0, 0, 0, 0.35);
+    --modal-bg:         #ffffff;
+    --modal-shadow:     0 16px 48px rgba(0, 0, 0, 0.18);
+    --confirm-hover-bg: #1a1a1a;
+    --illustration-hex: #e8e8e8;
+    --illustration-ink: #1a1a1a;
+  }
+
+  /* Empty-state illustration re-skin in light mode: the SVG uses presentation
+     attributes, so light overrides target them by attribute — dark mode is
+     untouched (byte-for-byte identical). */
+  :root[data-theme='light'] #empty-illustration svg path[fill="#141414"] { fill: var(--illustration-hex); }
+  :root[data-theme='light'] #empty-illustration svg circle[fill="#ffffff"],
+  :root[data-theme='light'] #empty-illustration svg ellipse[fill="#ffffff"] { fill: var(--illustration-ink); }
+
+  /* Theme flip: suspend transitions/animations for one frame so every surface
+     re-skins instantly (Chromium freezes transitions in hidden/occluded
+     windows, which would otherwise leave stale colors). */
+  :root.theme-switching, :root.theme-switching * { transition: none !important; animation: none !important; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
   }
 
   html, body {
@@ -538,7 +589,7 @@
     z-index: 9999;
     display: none;
     place-items: center;
-    background: rgba(0,0,0,0.7);
+    background: var(--overlay-bg);
     backdrop-filter: blur(6px);
     animation: fadeIn 160ms var(--ease-out) both;
   }
@@ -549,8 +600,8 @@
     padding: 28px 24px 20px;
     border-radius: var(--r-lg);
     border: 1px solid var(--border-1);
-    background: #121212;
-    box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+    background: var(--modal-bg);
+    box-shadow: var(--modal-shadow);
     animation: slideDown 200ms var(--ease-out) both;
   }
 
@@ -599,12 +650,20 @@
     font-weight: 600;
   }
   #modal-dialog .btn-confirm:hover {
-    background: #ffffff;
-    border-color: #ffffff;
+    background: var(--confirm-hover-bg);
+    border-color: var(--confirm-hover-bg);
   }
 </style>
 </head>
 <body>
+<script>
+  // Apply the persisted theme before first paint: the main process passes the
+  // current FeatureStore value as ?theme= when loading this page. Live changes
+  // arrive via settings-updated (see the sync script at the end of the body).
+  try {
+    document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
+  } catch (e) {}
+</script>
 
   <!-- ══ HEADER ═══════════════════════════════════════════ -->
   <div id="header">
@@ -1103,6 +1162,29 @@
   // ── INIT ─────────────────────────────────────────────────
   loadHistory();
 })();
+</script>
+
+<script>
+  // ── GLOBAL THEME LIVE SYNC ───────────────────────────────
+  // The persisted Theme Mode (FeatureStore) is the single source of truth.
+  // Main re-pushes the full snapshot to every Kairon-owned internal page on
+  // change; flip instantly and re-enable transitions after one frame.
+  (function () {
+    function applyTheme(mode) {
+      var theme = mode === 'light' ? 'light' : 'dark';
+      var root = document.documentElement;
+      if (root.dataset.theme === theme) return;
+      root.classList.add('theme-switching');
+      root.dataset.theme = theme;
+      setTimeout(function () { root.classList.remove('theme-switching'); }, 60);
+    }
+    try {
+      window.kairon.onSettingsUpdated(function (snapshot) {
+        var mode = snapshot && snapshot.state && snapshot.state.themeSystem && snapshot.state.themeSystem.settings && snapshot.state.themeSystem.settings.mode;
+        if (mode) applyTheme(mode);
+      });
+    } catch (e) {}
+  })();
 </script>
 </body>
 </html>

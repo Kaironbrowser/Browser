@@ -9,11 +9,37 @@ import { initAiPanel }         from './ai.js';
 
 const { kairon } = window;
 
+// ── GLOBAL THEME ─────────────────────────────────────────────
+// The persisted Theme Mode (FeatureStore) is the single source of truth for
+// the whole browser. The main process passes it as ?theme= at load so the
+// chrome renders the right theme before first paint; the authoritative value
+// is re-applied from the settings snapshot on boot and on every live
+// settings-updated push. Transitions are suspended for one frame while
+// flipping so every chrome surface re-skins instantly (Chromium freezes
+// transitions in hidden/occluded windows, which would leave stale colors).
+function applyChromeTheme(mode) {
+  const theme = mode === 'light' ? 'light' : 'dark';
+  if (document.body.dataset.theme === theme) return;
+  document.body.classList.add('theme-switching');
+  document.body.dataset.theme = theme;
+  setTimeout(() => document.body.classList.remove('theme-switching'), 60);
+}
+
+// Synchronous first-paint hint from the load query (rendered before paint).
+try {
+  applyChromeTheme(new URLSearchParams(location.search).get('theme'));
+} catch (e) {}
+
 // ── INIT ─────────────────────────────────────────────────────
 console.info('[renderer] init');
 const tabStore = createTabStateStore();
 const ui       = createUiController(kairon, tabStore, publishLayoutMetricsNow);
 const ai       = initAiPanel(kairon);
+
+// Authoritative boot value from the real store (corrects any stale query).
+kairon.getSettingsState().then((snapshot) => {
+  applyChromeTheme(snapshot.state?.themeSystem?.settings?.mode);
+}).catch(() => {});
 
 // ── ERROR CAPTURE ─────────────────────────────────────────────
 window.addEventListener('error', (event) => {
@@ -34,6 +60,8 @@ kairon.onLoading((loading)    => ui.onLoading(loading));
 kairon.onAdblockEvent((payload) => ui.onAdblockEvent(payload));
 kairon.onNavigationInvalid(() => ui.onNavigationInvalid());
 kairon.onSettingsUpdated((snapshot) => {
+  const mode = snapshot.state?.themeSystem?.settings?.mode;
+  if (mode) applyChromeTheme(mode);
   const tabPosition = snapshot.state?.themeSystem?.settings?.tabPosition;
   if (tabPosition && tabPosition !== ui.tabPosition) ui.setTabPosition(tabPosition, true);
 });
@@ -44,13 +72,16 @@ document.getElementById('btn-max')  .addEventListener('click', () => kairon.wind
 document.getElementById('btn-close').addEventListener('click', () => kairon.windowClose());
 
 // ── SETTINGS ──────────────────────────────────────────────────
-document.getElementById('btn-open-settings')?.addEventListener('click', () => kairon.openSettings());
-document.getElementById('btn-chrome-settings')?.addEventListener('click', () => kairon.openSettings());
+// Settings is a first-class internal page (kairon://settings) opened in the
+// active tab — the same pattern as the history page.
+const SETTINGS_PAGE_URL = 'kairon://settings';
+document.getElementById('btn-open-settings')?.addEventListener('click', () => kairon.navigate(SETTINGS_PAGE_URL));
+document.getElementById('btn-chrome-settings')?.addEventListener('click', () => kairon.navigate(SETTINGS_PAGE_URL));
 
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === ',') {
     e.preventDefault();
-    kairon.openSettings();
+    kairon.navigate(SETTINGS_PAGE_URL);
   }
 });
 

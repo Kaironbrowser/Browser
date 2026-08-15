@@ -11,7 +11,7 @@ This document describes what Kairon Browser **actually does right now**, verifie
 - **Startup**: window is maximized at launch; if the saved window bounds are off-screen, it is repositioned onto the primary display (`ensureWindowVisible`). Window position/size are **not** persisted between launches.
 - **Address bar (omnibar)**:
   - Typing `Enter` navigates. Input is normalized in the main process: explicit `http:`/`https:` URLs pass through, domain-like strings get `https://` prefixed, anything else becomes a **Brave Search** query (`https://search.brave.com/search?q=…`).
-  - `home` or `kairon://home` opens the internal home page; `kairon://history` opens the internal history page.
+  - `home` or `kairon://home` opens the internal home page; `kairon://history` opens the internal history page; `kairon://settings` opens the internal settings page (deep links like `kairon://settings/privacy` open a specific category).
   - Invalid targets (non-http(s) protocols, >2048 chars, unparseable) are rejected and the UI flashes an "Invalid address" state.
   - Suggestions are rendered in a **separate transparent overlay window** (see §9).
 - **Navigation buttons**: Back / Forward (enabled per the active tab's `navigationHistory.canGoBack/Forward`) and Reload (see note on stop, §15). There is no dedicated Home button — the home page is reached via a new tab, the address bar (`home`), or `Ctrl+H`-style navigation to `kairon://home`.
@@ -19,7 +19,7 @@ This document describes what Kairon Browser **actually does right now**, verifie
 - **Open Link in New Window** (context menu) creates a standalone plain `BrowserWindow` (no Kairon chrome) loading the URL.
 - **Page zoom**: per-tab zoom factor clamped to 0.25–5.0, stepped presets, `Ctrl+=`/`Ctrl+-`/`Ctrl+0` and on-screen buttons with a live percentage readout. Zoom applies per-tab and is reapplied on `dom-ready`/`did-finish-load`; it is **not** persisted across restarts.
 - **Search engine**: Brave Search is hardcoded as the only search provider (address bar, context menu "Search", home page form).
-- **Internal pages**: home page (`kairon://home` → `home.html`), history page (`kairon://history` → `history.html`), HTTPS-Only warning page, and a generated "This site cannot be reached" load-error page (shown on `did-fail-load`).
+- **Internal pages**: home page (`kairon://home` → `home.html`), history page (`kairon://history` → `history.html`), settings page (`kairon://settings` → `settings.html`), HTTPS-Only warning page, and a generated "This site cannot be reached" load-error page (shown on `did-fail-load`).
 
 ## 2. Tab Management
 
@@ -62,7 +62,7 @@ All verified in code. Modifier is **Ctrl** (Meta on macOS) unless noted.
 | `Ctrl+H` | Renderer | Open history page in active tab |
 | `Ctrl+[` / `Ctrl+]` | Renderer | Back / Forward |
 | `Alt+Left` / `Alt+Right` | Renderer | Back / Forward |
-| `Ctrl+,` | Renderer (`renderer.js`) | Open Settings window |
+| `Ctrl+,` | Renderer (`renderer.js`) | Open Settings page in active tab (`kairon://settings`) |
 | `Enter` | Renderer | Navigate from address bar |
 | `Esc` | Renderer | Blur address bar / close suggestions; cancels a tab drag; closes settings; closes history confirm modal |
 | `↑` / `↓` | Renderer | Navigate address-bar suggestions |
@@ -146,14 +146,14 @@ Only mechanisms present in code are listed; none are guaranteed protections.
 
 - **Tab placement**: sidebar (left rail) or top tab bar; toggled in Settings → Appearance → Tab Position (persisted in `localStorage` + synced with the `themeSystem` feature; works both directions).
 - **Left rail**: collapsible (persisted), contains the tab list, New Tab, and AI / History / Settings buttons.
-- **Omnibar suggestions**: shown in a dedicated transparent, always-on-top, click-through overlay window that can overlap page content. Suggestions = address-bar history + open-tab URLs + a final Brave Search entry (max 6); arrow keys cycle, Enter navigates, Esc closes. The overlay is clamped to the window bounds.
+- **Omnibar suggestions**: shown in a dedicated transparent, always-on-top, click-through overlay window that can overlap page content. Suggestions = address-bar history + open-tab URLs + a final Brave Search entry (max 6); arrow keys cycle, Enter navigates, Esc closes. The overlay is clamped to the window bounds. The overlay consumes the same global theme (`?theme=` at load + live `settings-updated` sync), so the dropdown, suggestion rows, hover/selected state, icons, and search-row text are light in Light Mode and dark in Dark Mode.
 - **Status strip**: "N total · N blocked · N allowed" counters + page title. Note: `adblock-event` is currently only emitted for *blocked* requests, so "allowed" stays 0.
 - **Shields menu** (shield icon): quick Off / Standard / Aggressive switching with toast feedback.
 - **Zoom controls**: − / value% / + / reset.
 - **AI panel** (see §12): collapsible right-side panel; toggling re-measures and re-applies the view layout.
 - **Home page**: clock + greeting (updates every 5 s), search form (same normalization as the address bar), and 8 hardcoded speed-dial tiles (YouTube, GitHub, Brave Search, Gmail, X, Reddit, Stack Overflow, Hacker News).
-- **Settings window**: separate frameless child window (skips taskbar, no shadow) with category sidebar (Privacy / Security / Performance / Appearance / Advanced), live search, feature toggles, per-feature sub-settings, per-feature reset, export/import JSON, Reset All, and a DNS-restart confirmation modal.
-- **Theming**: `themeSystem.mode` (dark default / light) exists and the CSS defines a light palette, but the theme is applied **only to the settings window** — the main browser window always renders dark (partial; see §15).
+- **Settings page**: first-class internal page (`kairon://settings` → `settings.html`) opened in a tab. Monochrome sidebar layout (Appearance / Privacy / Security / Advanced — only categories with genuinely wired settings are shown), live registry-driven search with deep links to results, feature toggles and sub-settings, export/import JSON, Reset All, a DNS-restart confirmation modal, and keyboard navigation. The settings page is trusted only while its tab URL is the local `settings.html` file (same sender-validation model as the history page).
+- **Theming**: `themeSystem.mode` (dark default / light) is a **global application theme** — one FeatureStore value drives the entire Kairon UI. The browser chrome (left rail, tabs, toolbar, address bar, window controls, zoom, status strip), the omnibox suggestions overlay, and every Kairon-owned internal page (home, history, settings, HTTPS warning, load-error) share the same CSS-variable palette. The main process passes the current mode as `?theme=` when loading the chrome, overlay, and internal pages (first paint), and live-syncs every change via the existing `settings-updated` push, so switching themes in Settings re-skins everything instantly without a restart. The selected mode is also exposed to websites through Chromium's standard `prefers-color-scheme` media feature via `nativeTheme.themeSource` (set on boot and on every settings change): sites that support the media query respond themselves, and sites that don't are never touched — no CSS/DOM injection into websites.
 
 ## 10. Context Menus
 
@@ -200,6 +200,7 @@ Only mechanisms present in code are listed; none are guaranteed protections.
 |---|---|---|
 | Home | `kairon://home` | Clock/greeting, search form, 8 speed dials (see §9) |
 | History | `kairon://history` | History dashboard (see §5) |
+| Settings | `kairon://settings` (and `kairon://settings/<section>`) | Settings sidebar + category pages (see §9) |
 | HTTPS warning | (loaded file) | "This connection is not secure" — Proceed / Go back |
 | Load error | (inline data URL) | "This site cannot be reached" with code/description |
 
@@ -209,7 +210,7 @@ Only mechanisms present in code are listed; none are guaranteed protections.
 - No download manager UI (default Electron behavior); no stop-loading control (the reload button calls an unexposed `stopLoading` which is a no-op).
 - No bookmarks (history-page star buttons are decorative), no tab groups, no tab tear-off, no window multi-instance management beyond one main window + child windows.
 - AI panel requires a Groq API key but **no UI exists to enter it** (the panel reads `groqApiKey` from the internal store); conversation is in-memory only, "streaming" is a simulated word-by-word reveal over a non-streaming request.
-- Theme mode (dark/light) only affects the settings window.
+- Theme mode (dark/light) affects the whole Kairon UI (chrome + internal pages + omnibox overlay) and is exposed to normal websites only through the standard `prefers-color-scheme` media feature (via `nativeTheme.themeSource`) — websites are never forcibly restyled and non-supporting sites render exactly as they normally do; the chrome and internal pages share one monochrome palette.
 - Adblocker filter lists are fetched at init only — no background refresh while running.
 - History "time browsing" stat is always 0 (`timeSpent` is never recorded).
 - Settings features with no wiring: see §15.

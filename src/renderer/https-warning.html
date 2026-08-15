@@ -7,6 +7,7 @@
   <title>Insecure Connection Blocked</title>
   <style>
     :root {
+      color-scheme: dark;
       --bg-color: #000000;
       --text-primary: #ffffff;
       --text-secondary: #a0a0a0;
@@ -15,6 +16,41 @@
       --btn-text: #000000;
       --grid-color: rgba(255, 255, 255, 0.03);
       --focus-outline: rgba(255, 255, 255, 0.5);
+      --url-box-bg: rgba(255, 255, 255, 0.02);
+      --hex-fill: rgba(255, 255, 255, 0.03);
+      --hex-stroke: #ffffff;
+      --hex-accent: #ffffff;
+      --btn-primary-hover-bg: #ffffff;
+      --btn-secondary-hover-bg: rgba(255, 255, 255, 0.05);
+    }
+
+    /* ── LIGHT THEME ────────────────────────────────────────
+       Monochrome light palette matching the shared Kairon theme vocabulary
+       (settings/home/history). Applied via data-theme on <html> (set before
+       first paint from the ?theme= query and live-synced from the store). */
+    :root[data-theme='light'] {
+      color-scheme: light;
+      --bg-color: #f0f0f0;
+      --text-primary: #141414;
+      --text-secondary: #555555;
+      --border-color: #d0d0d0;
+      --btn-bg: #1a1a1a;
+      --btn-text: #f5f5f5;
+      --grid-color: rgba(0, 0, 0, 0.04);
+      --focus-outline: rgba(0, 0, 0, 0.45);
+      --url-box-bg: rgba(0, 0, 0, 0.02);
+      --hex-fill: rgba(0, 0, 0, 0.03);
+      --hex-stroke: #1a1a1a;
+      --hex-accent: #1a1a1a;
+      --btn-primary-hover-bg: #000000;
+      --btn-secondary-hover-bg: rgba(0, 0, 0, 0.05);
+    }
+
+    /* Theme flip: suspend transitions for one frame so the page re-skins
+       instantly (Chromium freezes transitions in hidden/occluded windows). */
+    :root.theme-switching, :root.theme-switching * { transition: none !important; animation: none !important; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
     }
 
     body {
@@ -81,10 +117,15 @@
     }
 
     .hex {
-      fill: rgba(255, 255, 255, 0.03);
-      stroke: white;
+      fill: var(--hex-fill);
+      stroke: var(--hex-stroke);
       stroke-width: 2.8;
       /* Polished stroke width */
+    }
+
+    .hexagon-icon rect,
+    .hexagon-icon circle {
+      fill: var(--hex-accent);
     }
 
     h1 {
@@ -108,7 +149,7 @@
       padding: 14px 20px;
       border: 1px solid var(--border-color);
       border-radius: 4px;
-      background: rgba(255, 255, 255, 0.02);
+      background: var(--url-box-bg);
       color: var(--text-primary);
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: 14px;
@@ -159,7 +200,7 @@
     }
 
     .btn-primary:hover {
-      background-color: #ffffff;
+      background-color: var(--btn-primary-hover-bg);
     }
 
     /* Swapped Button Prominence: Proceed is now secondary/outlined */
@@ -171,12 +212,20 @@
 
     .btn-secondary:hover {
       border-color: var(--text-secondary);
-      background-color: rgba(255, 255, 255, 0.05);
+      background-color: var(--btn-secondary-hover-bg);
     }
   </style>
 </head>
 
 <body>
+  <script>
+    // Apply the persisted theme before first paint: the main process passes the
+    // current FeatureStore value as ?theme= when loading this page. Live changes
+    // arrive via settings-updated (see the sync script at the end of the body).
+    try {
+      document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
+    } catch (e) {}
+  </script>
   <div class="container">
     <div class="icon-container">
       <!-- Polished Hexagon with exclamation mark -->
@@ -220,6 +269,29 @@
       document.getElementById('blocked-url').textContent = blockedUrl;
       document.getElementById('proceed-link').href = blockedUrl;
     }
+  </script>
+
+  <script>
+    // ── GLOBAL THEME LIVE SYNC ─────────────────────────────
+    // The persisted Theme Mode (FeatureStore) is the single source of truth.
+    // Main re-pushes the full snapshot to every Kairon-owned internal page on
+    // change; flip instantly and re-enable transitions after one frame.
+    (function () {
+      function applyTheme(mode) {
+        var theme = mode === 'light' ? 'light' : 'dark';
+        var root = document.documentElement;
+        if (root.dataset.theme === theme) return;
+        root.classList.add('theme-switching');
+        root.dataset.theme = theme;
+        setTimeout(function () { root.classList.remove('theme-switching'); }, 60);
+      }
+      try {
+        window.kairon.onSettingsUpdated(function (snapshot) {
+          var mode = snapshot && snapshot.state && snapshot.state.themeSystem && snapshot.state.themeSystem.settings && snapshot.state.themeSystem.settings.mode;
+          if (mode) applyTheme(mode);
+        });
+      } catch (e) {}
+    })();
   </script>
 </body>
 

@@ -63,10 +63,12 @@ function renderSuggestions({ items, rect, selectedIndex = -1 }) {
           displayText = decodeURIComponent(query);
         }
       } catch {}
-      btn.style.color = 'rgba(255,255,255,0.6)';
+      // Search rows carry a secondary text color that follows the global theme.
+      btn.classList.add('address-suggestion-search');
       iconElement = `<img src="https://brave.com/favicon.ico" width="16" height="16" style="flex-shrink:0">`;
     } else {
-      iconElement = `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;opacity:0.5">
+      // The globe icon uses currentColor (theme text) with a theme-driven opacity.
+      iconElement = `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;opacity:var(--sugg-icon-opacity)">
           <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/>
           <path d="M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10" stroke="currentColor" stroke-width="1.2"/>
          </svg>`;

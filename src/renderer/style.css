@@ -55,6 +55,22 @@
      --color-warning:  #f5a623;
      --color-danger:   #f26b6b;
      --color-info:     #000000;
+
+     /* Selection & focus */
+     --selection-bg: rgba(255, 255, 255, 0.15);
+     --focus-ring:   rgba(255, 255, 255, 0.35);
+     --highlight-inset: rgba(255, 255, 255, 0.05);
+
+     /* Chrome surfaces (address suggestions, status strip, top tab bar) */
+     --suggest-bg: rgba(17, 17, 17, 0.97);
+     --status-bg:  rgba(0, 0, 0, 0.7);
+     --tab-bg:            rgba(20, 20, 20, 0.9);
+     --tab-bg-hover:      rgba(30, 30, 30, 0.95);
+     --tab-bg-active:     rgba(40, 40, 40, 0.98);
+     --tab-border:        rgba(255, 255, 255, 0.1);
+     --tab-border-hover:  rgba(255, 255, 255, 0.3);
+     --tab-border-active: rgba(255, 255, 255, 0.4);
+     --tab-border-dashed: rgba(255, 255, 255, 0.2);
    
      /* Spacing scale — 4px base */
      --s-1: 4px;
@@ -79,6 +95,20 @@
      --shadow-lg:   0 12px 40px rgba(0,0,0,0.52), 0 4px 12px rgba(0,0,0,0.32);
      --shadow-focus: 0 0 0 2.5px rgba(255, 255, 255, 0.18);
      --shadow-accent: 0 8px 24px rgba(0, 0, 0, 0.45);
+     --tab-top-shadow: 0 -2px 10px rgba(0, 0, 0, 0.5);
+
+     /* Semantic tints for hover/invalid states (translucent so they work on
+        both themes; text variants switch to dark ink in light mode) */
+     --border-faint:      rgba(255, 255, 255, 0.04);
+     --danger-tint:       rgba(242, 107, 107, 0.15);
+     --danger-tint-strong: rgba(242, 107, 107, 0.18);
+     --danger-border:     rgba(242, 107, 107, 0.6);
+     --danger-ring:       rgba(242, 107, 107, 0.2);
+     --danger-hover-text: #ffa0a0;
+     --warning-tint:      rgba(245, 166, 35, 0.18);
+     --warning-hover-text: #ffd680;
+     --success-tint:      rgba(52, 211, 155, 0.18);
+     --success-hover-text: #7fffd4;
    
      /* Motion */
      --dur-micro:  90ms;
@@ -106,30 +136,93 @@
      accent-color: var(--accent-1);
    }
    
-   /* ── LIGHT THEME ──────────────────────────────────────────── */
+   /* ── LIGHT THEME ────────────────────────────────────────────
+      The whole Kairon chrome shares one monochrome light vocabulary with the
+      internal pages (settings/home/history): off-white gray backgrounds,
+      dark ink text, subtle gray borders, no colored accents. */
    body[data-theme='light'] {
-     --bg-base:      #f0f2fa;
-     --bg-raised:    #e8ebf7;
-     --bg-overlay:   #ffffff;
-     --bg-elevated:  #f8f9ff;
+     /* Backgrounds — layered depth system */
+     --bg-base:      #f0f0f0; /* window / lowest layer */
+     --bg-raised:    #f7f7f7; /* content area */
+     --bg-chrome:    #f5f5f5; /* chromebar / header */
+     --bg-overlay:   #fbfbfb; /* suggestions, floating menus */
+     --bg-elevated:  #fdfdfd;
    
-     --surface-0:    rgba(0, 0, 0, 0.025);
-     --surface-1:    rgba(0, 0, 0, 0.045);
-     --surface-2:    rgba(0, 0, 0, 0.065);
-     --surface-3:    rgba(255, 255, 255, 0.85);
+     /* Surfaces — dark ink on light */
+     --surface-0:    rgba(0, 0, 0, 0.02);
+     --surface-1:    rgba(0, 0, 0, 0.04);
+     --surface-2:    rgba(0, 0, 0, 0.06);
+     --surface-3:    rgba(0, 0, 0, 0.08);
    
-     --border-0:     rgba(0, 0, 0, 0.07);
+     /* Borders */
+     --border-0:     rgba(0, 0, 0, 0.08);
      --border-1:     rgba(0, 0, 0, 0.12);
      --border-2:     rgba(0, 0, 0, 0.20);
+     --border-accent: rgba(0, 0, 0, 0.45);
    
-     --text-primary:   #121520;
-     --text-secondary: #505878;
-     --text-tertiary:  #8890b0;
+     /* Text */
+     --text-primary:   #1a1a1a;
+     --text-secondary: #5f5f5f;
+     --text-tertiary:  #8a8a8a;
+     --text-accent:    #111111;
    
+     /* Accent — black ink on light, monochrome */
+     --accent-1:       #1a1a1a;
+     --accent-2:       #1a1a1a;
+     --accent-gradient: linear-gradient(135deg, #1a1a1a 0%, #1a1a1a 100%);
+     --accent-glow:    rgba(0, 0, 0, 0.12);
+     --accent-active-bg:     rgba(0, 0, 0, 0.05);
+     --accent-active-border: rgba(0, 0, 0, 0.14);
+     --accent-active-text:   var(--text-primary);
+   
+     /* Semantic — same hues, darkened for contrast on light surfaces */
+     --color-success:  #2fae7e;
+     --color-warning:  #b07d1a;
+     --color-danger:   #d64545;
+     --color-info:     #1a1a1a;
+   
+     /* Selection & focus */
+     --selection-bg: rgba(0, 0, 0, 0.12);
+     --focus-ring:   rgba(0, 0, 0, 0.30);
+     --highlight-inset: rgba(255, 255, 255, 0.55);
+   
+     /* Chrome surfaces */
+     --suggest-bg: rgba(250, 250, 250, 0.98);
+     --status-bg:  rgba(245, 245, 245, 0.85);
+     --tab-bg:            rgba(255, 255, 255, 0.70);
+     --tab-bg-hover:      rgba(255, 255, 255, 0.90);
+     --tab-bg-active:     rgba(255, 255, 255, 0.98);
+     --tab-border:        rgba(0, 0, 0, 0.10);
+     --tab-border-hover:  rgba(0, 0, 0, 0.20);
+     --tab-border-active: rgba(0, 0, 0, 0.28);
+     --tab-border-dashed: rgba(0, 0, 0, 0.16);
+   
+     /* Shadows */
      --shadow-sm:   0 1px 3px rgba(0,0,0,0.10), 0 1px 2px rgba(0,0,0,0.06);
-     --shadow-md:   0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);
-     --shadow-lg:   0 12px 40px rgba(0,0,0,0.16), 0 4px 12px rgba(0,0,0,0.08);
+     --shadow-md:   0 4px 16px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06);
+     --shadow-lg:   0 12px 40px rgba(0,0,0,0.14), 0 4px 12px rgba(0,0,0,0.07);
+     --shadow-focus:  0 0 0 2.5px rgba(0, 0, 0, 0.18);
+     --shadow-accent: 0 8px 24px rgba(0, 0, 0, 0.12);
+     --tab-top-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08);
+
+     /* Semantic tints — darker ink variants for light surfaces */
+     --border-faint:       rgba(0, 0, 0, 0.06);
+     --danger-tint:        rgba(214, 69, 69, 0.12);
+     --danger-tint-strong: rgba(214, 69, 69, 0.14);
+     --danger-border:      rgba(214, 69, 69, 0.55);
+     --danger-ring:        rgba(214, 69, 69, 0.16);
+     --danger-hover-text:  #a33a3a;
+     --warning-tint:       rgba(176, 125, 26, 0.14);
+     --warning-hover-text: #8a6115;
+     --success-tint:       rgba(47, 174, 126, 0.14);
+     --success-hover-text: #1e7a58;
    }
+   
+   /* While a theme flip is in progress, transitions are suspended so the whole
+      chrome re-skins instantly (Chromium freezes transitions in hidden/occluded
+      windows, which would leave stale colors behind). */
+   .theme-switching,
+   .theme-switching * { transition: none !important; }
    
    /* ── BASE ─────────────────────────────────────────────────── */
    html, body {
@@ -156,12 +249,12 @@
    button { cursor: pointer; font-family: var(--font-ui); font-size: 13px; }
 
    ::selection {
-     background: rgba(255, 255, 255, 0.15);
+     background: var(--selection-bg);
      color: var(--text-primary);
    }
 
    :focus-visible {
-     outline: 2px solid rgba(255, 255, 255, 0.35);
+     outline: 2px solid var(--focus-ring);
      outline-offset: 2px;
    }
    
@@ -382,7 +475,7 @@
    .tab-item.active {
      background: var(--accent-active-bg);
      border-color: var(--accent-active-border);
-     box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 6px 16px rgba(0, 0, 0, 0.18);
+     box-shadow: inset 0 1px 0 var(--highlight-inset), 0 6px 16px rgba(0, 0, 0, 0.18);
    }
    
    .tab-item.active::before {
@@ -470,7 +563,7 @@
    
    .tab-item:hover .tab-close { opacity: 1; }
    .tab-close:hover {
-     background: rgba(242, 107, 107, 0.15);
+     background: var(--danger-tint);
      color: var(--color-danger);
    }
 
@@ -525,7 +618,7 @@
    }
    
    #rail-bottom {
-     border-top: 1px solid rgba(255, 255, 255, 0.04);
+     border-top: 1px solid var(--border-faint);
      padding-top: var(--s-3);
      margin-top: var(--s-3);
      display: flex;
@@ -733,8 +826,8 @@
    }
    
    #omnibar.invalid-url {
-     border-color: rgba(242, 107, 107, 0.6);
-     box-shadow: 0 0 0 2.5px rgba(242, 107, 107, 0.2);
+     border-color: var(--danger-border);
+     box-shadow: var(--danger-ring);
    }
    
    #shield {
@@ -768,7 +861,7 @@
      /* top/left/width set by JS from address-bar getBoundingClientRect() */
      border-radius: var(--r-xl);
      border: 1px solid var(--border-1);
-     background: rgba(17, 17, 17, 0.97);
+     background: var(--suggest-bg);
      backdrop-filter: blur(24px);
      -webkit-backdrop-filter: blur(24px);
      padding: var(--s-2);
@@ -832,9 +925,9 @@
      transform: translateY(-1px);
    }
    
-   #btn-close:hover  { background: rgba(242,107,107,0.18); color: #ffa0a0; border-color: rgba(242,107,107,0.3); }
-   #btn-min:hover    { background: rgba(245,166,35,0.18);  color: #ffd680; border-color: rgba(245,166,35,0.3);  }
-   #btn-max:hover    { background: rgba(52,211,155,0.18);  color: #7fffd4; border-color: rgba(52,211,155,0.3);  }
+   #btn-close:hover  { background: var(--danger-tint-strong); color: var(--danger-hover-text); border-color: var(--danger-border); }
+   #btn-min:hover    { background: var(--warning-tint);      color: var(--warning-hover-text); border-color: var(--warning-tint); }
+   #btn-max:hover    { background: var(--success-tint);      color: var(--success-hover-text); border-color: var(--success-tint); }
    
    /* ── STATUS STRIP ─────────────────────────────────────────── */
    #status-strip {
@@ -844,7 +937,7 @@
      align-items: center;
      justify-content: space-between;
      border-bottom: 1px solid var(--border-0);
-     background: rgba(0, 0, 0, 0.7);
+     background: var(--status-bg);
      transition:
        background-color var(--dur-base) var(--ease-out),
        border-color var(--dur-base) var(--ease-out),
@@ -880,7 +973,7 @@
      flex-shrink: 0;
      border-radius: var(--r-2xl);
      border: 1px solid var(--border-0);
-     background: #000000;
+     background: var(--bg-base);
      backdrop-filter: blur(24px);
      -webkit-backdrop-filter: blur(24px);
      display: flex;
@@ -1065,440 +1158,6 @@
      letter-spacing: 0.02em;
    }
    
-   /* ── SETTINGS WINDOW ──────────────────────────────────────── */
-   body.settings-window {
-     display: flex;
-     padding: 0;
-     gap: 0;
-     background: var(--bg-base);
-     overflow: hidden;
-   }
-
-   body.settings-window #settings-shell {
-     width: 100%;
-     height: 100%;
-     border-radius: 0;
-     border: none;
-     background: var(--bg-base);
-     backdrop-filter: none;
-     -webkit-backdrop-filter: none;
-     box-shadow: none;
-     overflow: hidden;
-     display: flex;
-     flex-direction: column;
-   }
-
-   body.settings-window #settings-actions {
-     padding: 0;
-   }
-   
-   #settings-header {
-     padding: var(--s-5) var(--s-6);
-     border-bottom: 1px solid var(--border-0);
-     display: flex;
-     justify-content: space-between;
-     align-items: center;
-     gap: var(--s-4);
-     background: rgba(255,255,255,0.018);
-   }
-   
-   #settings-title-wrap {
-     display: flex;
-     align-items: center;
-     gap: var(--s-4);
-   }
-   
-   #settings-title-wrap h2 {
-     font-size: 16px;
-     font-weight: 600;
-     letter-spacing: -0.02em;
-     color: var(--text-primary);
-   }
-   
-   /* Settings search — command palette feel */
-   #settings-search {
-     width: 300px;
-     height: 34px;
-     border-radius: var(--r-full);
-     border: 1px solid var(--border-1);
-     background: var(--surface-1);
-     color: var(--text-primary);
-     padding: 0 var(--s-3);
-     font-size: 12.5px;
-     font-family: var(--font-ui);
-     outline: none;
-     transition:
-       border-color var(--dur-base) var(--ease-out),
-       box-shadow var(--dur-base) var(--ease-out);
-   }
-   #settings-search::placeholder { color: var(--text-tertiary); }
-   #settings-search:focus {
-     border-color: var(--border-accent);
-     box-shadow: var(--shadow-focus);
-   }
-   
-   #btn-close-settings {
-     height: 30px;
-     padding: 0 var(--s-3);
-     border-radius: var(--r-md);
-     border: 1px solid var(--border-1);
-     background: var(--surface-1);
-     color: var(--text-secondary);
-     font-size: 12.5px;
-     transition: all var(--dur-fast) var(--ease-out);
-   }
-   #btn-close-settings:hover {
-     background: var(--surface-2);
-     color: var(--text-primary);
-     border-color: var(--border-2);
-   }
-   
-   #settings-content {
-     flex: 1;
-     min-height: 0;
-     display: grid;
-     grid-template-columns: 200px 1fr;
-   }
-   
-   /* ── SETTINGS SIDEBAR ─────────────────────────────────────── */
-   #settings-sidebar {
-     border-right: 1px solid var(--border-0);
-     padding: var(--s-3);
-     overflow: auto;
-     display: flex;
-     flex-direction: column;
-     gap: 2px;
-   }
-   
-   .settings-category-btn {
-     width: 100%;
-     min-height: 36px;
-     border-radius: var(--r-md);
-     border: 1px solid transparent;
-     text-align: left;
-     background: transparent;
-     color: var(--text-secondary);
-     padding: 0 var(--s-3);
-     font-size: 12.5px;
-     font-weight: 500;
-     transition: all var(--dur-fast) var(--ease-out);
-     display: flex;
-     align-items: center;
-     gap: var(--s-2);
-   }
-   .settings-category-btn:hover {
-     background: var(--surface-1);
-     color: var(--text-primary);
-   }
-   .settings-category-btn.active {
-     background: var(--accent-active-bg);
-     border-color: var(--accent-active-border);
-     color: var(--accent-active-text);
-   }
-   
-   /* ── SETTINGS MAIN ────────────────────────────────────────── */
-   #settings-main {
-     min-width: 0;
-     display: flex;
-     flex-direction: column;
-     overflow: hidden;
-   }
-   
-   #settings-actions {
-     display: flex;
-     gap: var(--s-2);
-     padding: var(--s-4) var(--s-5) 0;
-     flex-wrap: wrap;
-   }
-   
-   #settings-actions button {
-     height: 30px;
-     padding: 0 var(--s-3);
-     border-radius: var(--r-md);
-     border: 1px solid var(--border-1);
-     background: var(--surface-1);
-     color: var(--text-secondary);
-     font-size: 12px;
-     transition: all var(--dur-fast) var(--ease-out);
-   }
-   #settings-actions button:hover {
-     background: var(--surface-2);
-     color: var(--text-primary);
-     border-color: var(--border-2);
-   }
-   
-   #settings-import-export {
-     margin: var(--s-3) var(--s-5);
-     min-height: 80px;
-     border-radius: var(--r-lg);
-     border: 1px solid var(--border-0);
-     background: rgba(0, 0, 0, 0.5);
-     color: var(--text-secondary);
-     padding: var(--s-3);
-     font-family: var(--font-mono);
-     font-size: 11.5px;
-     resize: vertical;
-     outline: none;
-     transition: border-color var(--dur-base) var(--ease-out);
-   }
-   #settings-import-export:focus { border-color: var(--border-accent); }
-   
-   #settings-feature-list {
-     flex: 1;
-     min-height: 0;
-     overflow: auto;
-     padding: var(--s-3) var(--s-5) var(--s-5);
-     display: flex;
-     flex-direction: column;
-     gap: var(--s-2);
-   }
-   
-   /* ── FEATURE CARDS ────────────────────────────────────────── */
-   .feature-card {
-     border: 1px solid var(--border-0);
-     border-radius: var(--r-xl);
-     background: var(--surface-0);
-     padding: var(--s-4) var(--s-5);
-     transition:
-       border-color var(--dur-base) var(--ease-out),
-       background var(--dur-base) var(--ease-out),
-       transform var(--dur-base) var(--ease-spring),
-       box-shadow var(--dur-base) var(--ease-out);
-   }
-   
-   .feature-card:hover {
-     border-color: var(--border-1);
-     background: var(--surface-1);
-     transform: translateY(-1px);
-     box-shadow: var(--shadow-sm);
-   }
-   
-   .feature-row {
-     display: flex;
-     justify-content: space-between;
-     align-items: center;
-     gap: var(--s-3);
-   }
-   
-   .feature-meta h4 {
-     font-size: 13.5px;
-     font-weight: 600;
-     letter-spacing: -0.01em;
-     color: var(--text-primary);
-     margin-bottom: 2px;
-   }
-   
-   .feature-meta p {
-     font-size: 11px;
-     color: var(--text-tertiary);
-     font-family: var(--font-mono);
-   }
-   
-   .feature-reset-btn {
-     margin-top: var(--s-3);
-     height: 28px;
-     padding: 0 var(--s-3);
-     border-radius: var(--r-md);
-     border: 1px solid var(--border-0);
-     background: transparent;
-     color: var(--text-tertiary);
-     font-size: 11.5px;
-     transition: all var(--dur-fast) var(--ease-out);
-   }
-   .feature-reset-btn:hover {
-     background: var(--surface-1);
-     color: var(--text-secondary);
-     border-color: var(--border-1);
-   }
-   
-   /* Premium toggle */
-   .feature-toggle {
-     appearance: none;
-     -webkit-appearance: none;
-     width: 42px;
-     height: 23px;
-     border-radius: var(--r-full);
-     border: 1.5px solid var(--border-1);
-     background: var(--surface-2);
-     position: relative;
-     cursor: pointer;
-     flex-shrink: 0;
-     transition:
-       background var(--dur-base) var(--ease-out),
-       border-color var(--dur-base) var(--ease-out),
-       box-shadow var(--dur-base) var(--ease-out);
-   }
-   
-   .feature-toggle::after {
-     content: '';
-     position: absolute;
-     width: 17px;
-     height: 17px;
-     border-radius: 50%;
-     background: rgba(255,255,255,0.7);
-     top: 1.5px;
-     left: 1.5px;
-     box-shadow: 0 1px 3px rgba(0,0,0,0.35);
-     transition:
-       transform var(--dur-base) var(--ease-spring),
-       background var(--dur-base) var(--ease-out),
-       box-shadow var(--dur-base) var(--ease-out);
-   }
-   
-   .feature-toggle:checked {
-     background: var(--accent-gradient);
-     border-color: transparent;
-     box-shadow: 0 0 0 3px var(--accent-glow), var(--shadow-sm);
-   }
-   
-   .feature-toggle:checked::after {
-     transform: translateX(19px);
-     background: #ffffff;
-     box-shadow: 0 1px 4px rgba(0,0,0,0.28);
-   }
-   
-   .feature-settings {
-     margin-top: var(--s-3);
-     border-top: 1px solid var(--border-0);
-     padding-top: var(--s-3);
-     display: grid;
-     gap: var(--s-2);
-   }
-   
-   .feature-setting-row {
-     display: flex;
-     justify-content: space-between;
-     align-items: center;
-     gap: var(--s-3);
-   }
-   
-   .feature-setting-row label {
-     color: var(--text-secondary);
-     font-size: 12px;
-   }
-   
-   .feature-setting-row input[type='text'],
-   .feature-setting-row input[type='number'],
-   .feature-setting-row textarea {
-     border-radius: var(--r-md);
-     border: 1px solid var(--border-1);
-     background: rgba(0, 0, 0, 0.7);
-     color: var(--text-primary);
-     padding: 0 var(--s-2);
-     font-family: var(--font-mono);
-     font-size: 11.5px;
-     outline: none;
-     transition:
-       border-color var(--dur-base) var(--ease-out),
-       box-shadow var(--dur-base) var(--ease-out);
-   }
-   
-   .feature-setting-row input[type='text'],
-   .feature-setting-row input[type='number'] {
-     width: 220px;
-     height: 28px;
-   }
-   
-   .feature-setting-row input:focus,
-   .feature-setting-row textarea:focus {
-     border-color: var(--border-accent);
-     box-shadow: var(--shadow-focus);
-   }
-   
-   .feature-setting-row textarea {
-     width: 220px;
-     padding: var(--s-2);
-     min-height: 64px;
-     resize: vertical;
-   }
-
-   .feature-select {
-     width: 220px;
-     height: 28px;
-     border-radius: var(--r-md);
-     border: 1px solid var(--border-1);
-     background: rgba(0, 0, 0, 0.7);
-     color: var(--text-primary);
-     padding: 0 28px 0 var(--s-2);
-     font-family: var(--font-ui);
-     font-size: 12px;
-     outline: none;
-     cursor: pointer;
-     appearance: none;
-     -webkit-appearance: none;
-     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93b5' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-     background-repeat: no-repeat;
-     background-position: right 10px center;
-     transition:
-       border-color var(--dur-base) var(--ease-out),
-       box-shadow var(--dur-base) var(--ease-out);
-   }
-
-   .feature-select:focus {
-     border-color: var(--accent-active-border);
-     box-shadow: var(--shadow-focus);
-   }
-
-   .feature-select option {
-     background: var(--bg-elevated);
-     color: var(--text-primary);
-   }
-
-   .settings-modal {
-     position: fixed;
-     inset: 0;
-     z-index: 200;
-     display: grid;
-     place-items: center;
-     padding: var(--s-5);
-     background: rgba(5, 7, 14, 0.72);
-     backdrop-filter: blur(8px);
-   }
-
-   .settings-modal[hidden] {
-     display: none;
-   }
-
-   .settings-modal-dialog {
-     width: min(420px, 100%);
-     padding: var(--s-5);
-     border: 1px solid var(--border-1);
-     border-radius: var(--r-lg);
-     background: var(--bg-elevated);
-     box-shadow: var(--shadow-lg);
-     animation: modalIn var(--dur-modal) var(--ease-out);
-   }
-
-   .settings-modal-dialog h3 {
-     margin: 0;
-     color: var(--text-primary);
-     font-size: 16px;
-     font-weight: 600;
-     line-height: 1.45;
-   }
-
-   .settings-modal-actions {
-     display: flex;
-     justify-content: flex-end;
-     gap: var(--s-2);
-     margin-top: var(--s-5);
-   }
-
-   .settings-modal-actions button {
-     height: 32px;
-     padding: 0 var(--s-3);
-     border: 1px solid var(--border-1);
-     border-radius: var(--r-md);
-     background: var(--surface-1);
-     color: var(--text-secondary);
-   }
-
-   .settings-modal-actions button.primary {
-     border-color: var(--accent-active-border);
-     background: var(--accent-gradient);
-     color: white;
-   }
-   
    /* ── KEYFRAMES ────────────────────────────────────────────── */
    @keyframes spin {
      to { transform: rotate(360deg); }
@@ -1561,17 +1220,17 @@
      height: 100%;
      border: none;
      border-radius: 0;
-     background: black;
+     background: var(--bg-raised);
    }
    
    body[data-tab-position="top"] #chromebar { padding-right: var(--s-4);
      border-radius: 0;
-     background: rgba(0, 0, 0, 0.95);
-     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+     background: var(--bg-chrome);
+     border-bottom: 1px solid var(--border-0);
    }
    
    body[data-tab-position="top"] #status-strip {
-     background: rgba(0, 0, 0, 0.7);
+     background: var(--status-bg);
    }
    
    /* Top tab bar styling */
@@ -1580,8 +1239,8 @@
      align-items: center;
      gap: 3px;
      padding: 6px 110px 0 12px;
-     background: rgba(0, 0, 0, 0.9);
-     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+     background: var(--bg-chrome);
+     border-bottom: 1px solid var(--border-0);
      height: 48px;
      /* Allow horizontal scrolling when tabs are too small */
      overflow-x: auto;
@@ -1604,8 +1263,8 @@
      height: 36px;
      padding: 0 8px;
      border-radius: 10px 10px 0 0;
-     border: 1px solid rgba(255, 255, 255, 0.1);
-     background: rgba(20, 20, 20, 0.9);
+     border: 1px solid var(--tab-border);
+     background: var(--tab-bg);
      cursor: pointer;
      /* Chrome, not selectable text; never a native HTML5 drag source. */
      user-select: none;
@@ -1626,14 +1285,14 @@
    }
    
    body[data-tab-position="top"] .top-tab:hover {
-     background: rgba(30, 30, 30, 0.95);
+     background: var(--tab-bg-hover);
      transform: translateY(-1px);
    }
    
    body[data-tab-position="top"] .top-tab.active {
-     background: rgba(40, 40, 40, 0.98);
-     border-color: rgba(255, 255, 255, 0.4);
-     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.5);
+     background: var(--tab-bg-active);
+     border-color: var(--tab-border-active);
+     box-shadow: var(--tab-top-shadow);
    }
    
    body[data-tab-position="top"] .top-tab-favicon {
@@ -1707,7 +1366,7 @@
    }
    
    body[data-tab-position="top"] .top-tab-close:hover {
-     background: rgba(242, 107, 107, 0.15);
+     background: var(--danger-tint);
      color: var(--color-danger);
    }
    
@@ -1719,8 +1378,8 @@
      height: 36px;
      padding: 0 12px;
      border-radius: 10px 10px 0 0;
-     border: 1px dashed rgba(255, 255, 255, 0.2);
-     background: rgba(20, 20, 20, 0.7);
+     border: 1px dashed var(--tab-border-dashed);
+     background: var(--tab-bg);
      color: var(--text-secondary);
      cursor: pointer;
      transition:
@@ -1733,8 +1392,8 @@
    }
    
    body[data-tab-position="top"] .btn-new-tab-top:hover {
-     background: rgba(30, 30, 30, 0.9);
-     border-color: rgba(255, 255, 255, 0.3);
+     background: var(--tab-bg-hover);
+     border-color: var(--tab-border-hover);
      color: var(--text-primary);
      transform: translateY(-1px);
    }

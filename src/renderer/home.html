@@ -11,6 +11,7 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
+      color-scheme: dark;
       /* Backgrounds */
       --bg: #000000;
       --surface-1: #050505;
@@ -31,6 +32,33 @@
      --accent: #000000;
      --accent-soft: rgba(0,0,0,0.12);
      --accent-faint: rgba(0,0,0,0.06);
+      /* Theme-aware chrome tokens (dark defaults — exact current values) */
+      --text-primary: #eef0f8;
+      --eyebrow-bg: rgba(0, 0, 0, 0.08);
+      --eyebrow-border: rgba(255, 255, 255, 0.15);
+      --eyebrow-text: #FFFFFF;
+      --dot-color: #3b82f6;
+      --search-border: rgba(255, 255, 255, 0.12);
+      --search-border-focus: rgba(255, 255, 255, 0.4);
+      --search-bg: rgba(15, 15, 15, 0.95);
+      --search-bg-focus: rgba(20, 20, 20, 0.98);
+      --search-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      --search-shadow-focus: 0 0 0 3px rgba(255,255,255,0.1), 0 12px 40px rgba(0, 0, 0, 0.6);
+      --btn-border: rgba(255, 255, 255, 0.15);
+      --btn-border-hover: rgba(255,255,255,0.4);
+      --btn-bg: rgba(0,0,0,0.5);
+      --btn-bg-hover: rgba(0,0,0,0.8);
+      --dial-border: rgba(255, 255, 255, 0.08);
+      --dial-border-hover: rgba(255, 255, 255, 0.15);
+      --dial-bg: rgba(15, 15, 15, 0.9);
+      --dial-bg-hover: rgba(25, 25, 25, 0.95);
+      --dial-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      --dial-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.4);
+      --favicon-bg: rgba(30, 30, 30, 0.95);
+      --favicon-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      --footer-border: rgba(255, 255, 255, 0.04);
+      --kbd-border: rgba(255, 255, 255, 0.1);
+      --kbd-bg: rgba(30, 30, 30, 0.95);
       /* Spacing */
       --s-1: 4px;
       --s-2: 8px;
@@ -57,12 +85,74 @@
       --font-mono: 'Geist Mono', 'SF Mono', monospace;
     }
 
+    /* ── LIGHT THEME ────────────────────────────────────────
+       Monochrome light palette — the same Kairon design translated to
+       off-white surfaces with dark ink text. Applied via data-theme on
+       <html> (set before first paint from the ?theme= query and live-synced
+       from the FeatureStore). */
+    :root[data-theme='light'] {
+      color-scheme: light;
+      --bg: #f0f0f0;
+      --surface-1: #fafafa;
+      --surface-2: #ffffff;
+      --surface-3: #f5f5f5;
+      --surface-4: #e8e8e8;
+      --border: rgba(0, 0, 0, 0.08);
+      --border-strong: rgba(0, 0, 0, 0.14);
+      --highlight: rgba(0, 0, 0, 0.05);
+      --shadow-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      --text: #141414;
+      --text-secondary: #555555;
+      --text-tertiary: #777777;
+      --text-muted: #777777;
+      --accent: #1a1a1a;
+      --accent-soft: rgba(0, 0, 0, 0.10);
+      --accent-faint: rgba(0, 0, 0, 0.05);
+      --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.12);
+      --shadow-md: 0 4px 24px rgba(0, 0, 0, 0.14);
+      --shadow-lg: 0 8px 48px rgba(0, 0, 0, 0.16);
+      --text-primary: #141414;
+      --eyebrow-bg: rgba(0, 0, 0, 0.05);
+      --eyebrow-border: rgba(0, 0, 0, 0.15);
+      --eyebrow-text: #1a1a1a;
+      --dot-color: #1a1a1a;
+      --search-border: rgba(0, 0, 0, 0.14);
+      --search-border-focus: rgba(0, 0, 0, 0.45);
+      --search-bg: rgba(255, 255, 255, 0.92);
+      --search-bg-focus: rgba(255, 255, 255, 0.98);
+      --search-shadow: 0 8px 32px rgba(0, 0, 0, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      --search-shadow-focus: 0 0 0 3px rgba(0, 0, 0, 0.08), 0 12px 40px rgba(0, 0, 0, 0.12);
+      --btn-border: rgba(0, 0, 0, 0.18);
+      --btn-border-hover: rgba(0, 0, 0, 0.45);
+      --btn-bg: rgba(0, 0, 0, 0.06);
+      --btn-bg-hover: rgba(0, 0, 0, 0.10);
+      --dial-border: rgba(0, 0, 0, 0.09);
+      --dial-border-hover: rgba(0, 0, 0, 0.18);
+      --dial-bg: rgba(255, 255, 255, 0.9);
+      --dial-bg-hover: #ffffff;
+      --dial-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      --dial-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 8px 24px rgba(0, 0, 0, 0.10);
+      --favicon-bg: #f0f0f0;
+      --favicon-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      --footer-border: rgba(0, 0, 0, 0.06);
+      --kbd-border: rgba(0, 0, 0, 0.14);
+      --kbd-bg: #f5f5f5;
+    }
+
+    /* Theme flip: suspend transitions/animations for one frame so every
+       surface re-skins instantly (Chromium freezes transitions in hidden or
+       occluded windows, which would otherwise leave stale colors). */
+    :root.theme-switching, :root.theme-switching * { transition: none !important; animation: none !important; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+
     html, body {
       width: 100%;
       min-height: 100vh;
       font-family: var(--font-ui);
       color: var(--text);
-      background: #000000;
+      background: var(--bg);
       -webkit-font-smoothing: antialiased;
     }
 
@@ -102,18 +192,18 @@
       font-weight: 500;
       letter-spacing: 0.15em;
       text-transform: uppercase;
-      color: #FFFFFF;
+      color: var(--eyebrow-text);
       padding: 6px 14px;
       border-radius: var(--r-full);
-      background: rgba(0, 0, 0, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: var(--eyebrow-bg);
+      border: 1px solid var(--eyebrow-border);
     }
 
     .hero-eyebrow .dot {
      width: 6px;
      height: 6px;
      border-radius: 50%;
-     background: #3b82f6;
+     background: var(--dot-color);
      animation: pulse 2.4s var(--ease-out) infinite;
    }
 
@@ -146,17 +236,17 @@
       height: 52px;
       padding: 0 12px 0 18px;
       border-radius: 24px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(15, 15, 15, 0.95);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--search-border);
+      background: var(--search-bg);
+      box-shadow: var(--search-shadow);
       transition: all var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-bounce);
     }
 
     .search-wrap:focus-within {
-     border-color: rgba(255, 255, 255, 0.4);
-     box-shadow: 0 0 0 3px rgba(255,255,255,0.1), 0 12px 40px rgba(0, 0, 0, 0.6);
+     border-color: var(--search-border-focus);
+     box-shadow: var(--search-shadow-focus);
      transform: translateY(-2px);
-     background: rgba(20, 20, 20, 0.98);
+     background: var(--search-bg-focus);
    }
 
    .search-icon {
@@ -182,8 +272,8 @@
      height: 38px;
      padding: 0 22px;
      border-radius: 20px;
-     border: 1px solid rgba(255, 255, 255, 0.15);
-     background: rgba(0,0,0,0.5);
+     border: 1px solid var(--btn-border);
+     background: var(--btn-bg);
      color: var(--text-primary);
      font-size: 14px;
      font-family: var(--font-ui);
@@ -195,8 +285,8 @@
 
    .search-btn:hover {
      transform: translateY(-1px);
-     background: rgba(0,0,0,0.8);
-     border-color: rgba(255,255,255,0.4);
+     background: var(--btn-bg-hover);
+     border-color: var(--btn-border-hover);
    }
 
     .search-btn:active { transform: scale(0.96); }
@@ -232,9 +322,9 @@
 
     .dial {
       position: relative;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--dial-border);
       border-radius: 16px;
-      background: rgba(15, 15, 15, 0.9);
+      background: var(--dial-bg);
       color: var(--text);
       text-decoration: none;
       min-height: 90px;
@@ -244,15 +334,15 @@
       gap: 4px;
       padding: 16px 18px;
       overflow: hidden;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      box-shadow: var(--dial-shadow);
       transition: all var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-bounce);
     }
 
     .dial:hover {
-      border-color: rgba(255, 255, 255, 0.15);
-      background: rgba(25, 25, 25, 0.95);
+      border-color: var(--dial-border-hover);
+      background: var(--dial-bg-hover);
       transform: translateY(-2px);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.4);
+      box-shadow: var(--dial-shadow-hover);
     }
 
     .dial:active { transform: scale(0.98); }
@@ -262,7 +352,7 @@
       height: 24px;
       border-radius: 8px;
       margin-bottom: 6px;
-      background: rgba(30, 30, 30, 0.95);
+      background: var(--favicon-bg);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -271,7 +361,7 @@
       position: relative;
       z-index: 1;
       flex-shrink: 0;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      box-shadow: var(--favicon-shadow);
     }
 
     .dial-favicon img {
@@ -309,7 +399,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      border-top: 1px solid var(--footer-border);
       animation: fadeIn var(--dur-base) 0.22s var(--ease-out) both;
       background: transparent;
     }
@@ -330,8 +420,8 @@
       min-width: 20px;
       padding: 0 6px;
       border-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      background: rgba(30, 30, 30, 0.95);
+      border: 1px solid var(--kbd-border);
+      background: var(--kbd-bg);
       font-size: 11px;
       font-family: var(--font-mono);
       color: var(--text-secondary);
@@ -355,6 +445,14 @@
   </style>
 </head>
 <body>
+<script>
+  // Apply the persisted theme before first paint: the main process passes the
+  // current FeatureStore value as ?theme= when loading this page. Live changes
+  // arrive via settings-updated (see the sync script at the end of the body).
+  try {
+    document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
+  } catch (e) {}
+</script>
 
   <div class="page-content">
 
@@ -523,6 +621,29 @@
         img.parentElement.textContent = img.closest('.dial').querySelector('strong').textContent[0];
       };
     });
+  </script>
+
+  <script>
+    // ── GLOBAL THEME LIVE SYNC ─────────────────────────────
+    // The persisted Theme Mode (FeatureStore) is the single source of truth.
+    // Main re-pushes the full snapshot to every Kairon-owned internal page on
+    // change; flip instantly and re-enable transitions after one frame.
+    (function () {
+      function applyTheme(mode) {
+        var theme = mode === 'light' ? 'light' : 'dark';
+        var root = document.documentElement;
+        if (root.dataset.theme === theme) return;
+        root.classList.add('theme-switching');
+        root.dataset.theme = theme;
+        setTimeout(function () { root.classList.remove('theme-switching'); }, 60);
+      }
+      try {
+        window.kairon.onSettingsUpdated(function (snapshot) {
+          var mode = snapshot && snapshot.state && snapshot.state.themeSystem && snapshot.state.themeSystem.settings && snapshot.state.themeSystem.settings.mode;
+          if (mode) applyTheme(mode);
+        });
+      } catch (e) {}
+    })();
   </script>
 
 </body>

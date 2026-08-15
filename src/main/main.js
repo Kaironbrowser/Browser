@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, ipcMain, nativeImage, session, screen, webContents, dialog, net } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, nativeImage, session, screen, webContents, dialog, net, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -209,7 +209,6 @@ let historyService = null;
 
 let mainWindow = null;
 let overlayWindow = null;
-let settingsWindow = null;
 let activeOverlaySuggestions = null;
 let _aggressiveWebRequestHandler = null;
 let _aggressiveActive = false;
@@ -392,6 +391,8 @@ const HOME_PAGE_URL = 'kairon://home';
 const HOME_PAGE_FILE = path.join(__dirname, '../renderer/home.html');
 const HISTORY_PAGE_FILE = path.join(__dirname, '../renderer/history.html');
 const HTTPS_WARNING_FILE = path.join(__dirname, '../renderer/https-warning.html');
+const SETTINGS_PAGE_URL = 'kairon://settings';
+const SETTINGS_PAGE_FILE = path.join(__dirname, '../renderer/settings.html');
 let logFilePath = '';
 
 function getAppIconPath(ext = '.ico') {
@@ -447,6 +448,27 @@ function isHistoryUrl(input) {
   return typeof input === 'string' && input.trim().toLowerCase() === 'kairon://history';
 }
 
+function isSettingsUrl(input) {
+  return typeof input === 'string' && /^kairon:\/\/settings(\/|$)/i.test(input.trim());
+}
+
+// Normalize kairon://settings and kairon://settings/<section> deep links to
+// their canonical form. Anything else returns null so invalid settings paths
+// surface the normal "Invalid address" state instead of being navigated.
+function normalizeSettingsUrl(input) {
+  if (typeof input !== 'string') return null;
+  const lower = input.trim().toLowerCase();
+  if (lower === SETTINGS_PAGE_URL || lower === 'kairon://settings/') return SETTINGS_PAGE_URL;
+  const match = /^kairon:\/\/settings\/([a-z0-9-]+)$/.exec(lower);
+  if (match) return `kairon://settings/${match[1]}`;
+  return null;
+}
+
+function getSettingsSectionFromUrl(url) {
+  const match = /^kairon:\/\/settings\/([a-z0-9-]+)$/i.exec(String(url || '').trim());
+  return match ? match[1] : null;
+}
+
 function isPersistableUrl(input) {
   return isAllowedHttpUrl(input) || isHomeUrl(input);
 }
@@ -457,6 +479,8 @@ function normalizeNavigationTarget(urlInput) {
   if (input.length > MAX_URL_LENGTH) return null;
   if (isHomeUrl(input) || input.toLowerCase() === 'home') return HOME_PAGE_URL;
   if (isHistoryUrl(input)) return 'kairon://history';
+  const settingsTarget = normalizeSettingsUrl(input);
+  if (settingsTarget) return settingsTarget;
 
   const hasProtocol = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(input);
   const candidate = hasProtocol ? input : (input.includes('.') && !input.includes(' ') && input.length < 100 ? `https://${input}` : `https://search.brave.com/search?q=${encodeURIComponent(input)}`);
@@ -470,7 +494,6 @@ function isTrustedIpcSender(event) {
   // Allow messages from the main renderer and from the overlay renderer (if present)
   if (event.sender === mainWindow.webContents) return true;
   if (overlayWindow && !overlayWindow.isDestroyed() && event.sender === overlayWindow.webContents) return true;
-  if (settingsWindow && !settingsWindow.isDestroyed() && event.sender === settingsWindow.webContents) return true;
   return false;
 }
 
@@ -505,6 +528,72 @@ function getHistoryPageFileUrl() {
   return _historyPageFileUrl;
 }
 
+let _settingsPageFileUrl = null;
+function getSettingsPageFileUrl() {
+  if (_settingsPageFileUrl === null) {
+    try {
+      _settingsPageFileUrl = pathToFileURL(SETTINGS_PAGE_FILE).href;
+    } catch (e) {
+      _settingsPageFileUrl = '';
+    }
+  }
+  return _settingsPageFileUrl;
+}
+
+let _homePageFileUrl = null;
+function getHomePageFileUrl() {
+  if (_homePageFileUrl === null) {
+    try {
+      _homePageFileUrl = pathToFileURL(HOME_PAGE_FILE).href;
+    } catch (e) {
+      _homePageFileUrl = '';
+    }
+  }
+  return _homePageFileUrl;
+}
+
+let _httpsWarningPageFileUrl = null;
+function getHttpsWarningPageFileUrl() {
+  if (_httpsWarningPageFileUrl === null) {
+    try {
+      _httpsWarningPageFileUrl = pathToFileURL(HTTPS_WARNING_FILE).href;
+    } catch (e) {
+      _httpsWarningPageFileUrl = '';
+    }
+  }
+  return _httpsWarningPageFileUrl;
+}
+
+// The persisted theme is the single source of truth for the whole app — the
+// browser chrome, every internal page, and generated pages all consume it.
+function getCurrentThemeMode() {
+  try {
+    return featureStore.getFeatureSettings('themeSystem').mode === 'light' ? 'light' : 'dark';
+  } catch (e) {
+    return 'dark';
+  }
+}
+
+function getThemeQuery() {
+  return { theme: getCurrentThemeMode() };
+}
+
+// Kairon's selected Theme Mode is the single source of truth for the whole
+// app, including the color scheme that normal websites observe. Electron's
+// nativeTheme is the native Chromium media-feature emulation point: setting
+// themeSource makes prefers-color-scheme resolve to light/dark in EVERY
+// webContents (browser chrome, internal pages, and normal websites alike) —
+// websites that support the media feature respond themselves, and websites
+// that don't are never touched (no CSS/DOM injection). Per-webContents
+// color-scheme overrides are not available in Electron, so this global switch
+// is the correct mechanism. Idempotent, so it is safe to call on every
+// settings change and on startup.
+function syncNativeColorScheme() {
+  try {
+    nativeTheme.themeSource = getCurrentThemeMode() === 'light' ? 'light' : 'dark';
+  } catch (e) { }
+}
+
 function isInternalHistoryPage(event) {
   if (!event || !event.sender || typeof event.sender.getURL !== 'function') return false;
   const target = getHistoryPageFileUrl();
@@ -523,6 +612,71 @@ function isInternalHistoryPage(event) {
       }
     };
     return norm(current) === norm(target);
+  } catch (e) {
+    return false;
+  }
+}
+
+// The internal settings page (loaded via loadFile from SETTINGS_PAGE_FILE)
+// is trusted only while its current URL is the local settings.html file — the
+// same trust model as the internal history page. If the page navigates to an
+// external site, event.sender.getURL() no longer matches and privileges are
+// revoked immediately. Normal web pages can never match.
+function isInternalSettingsPage(event) {
+  if (!event || !event.sender || typeof event.sender.getURL !== 'function') return false;
+  const target = getSettingsPageFileUrl();
+  if (!target) return false;
+  try {
+    const current = event.sender.getURL();
+    if (!current) return false;
+    // Compare protocol + host + pathname only, so query/hash changes on the
+    // internal page keep working, and case is normalized for Windows paths.
+    const norm = (raw) => {
+      try {
+        const parsed = new URL(raw);
+        return `${parsed.protocol}${parsed.host}${parsed.pathname}`.toLowerCase();
+      } catch (e) {
+        return String(raw).toLowerCase();
+      }
+    };
+    return norm(current) === norm(target);
+  } catch (e) {
+    return false;
+  }
+}
+
+// True when a webContents is currently showing the internal settings page.
+// Used by emitSettingsState so live settings updates only reach pages that
+// still have privileged access (trust follows the loaded URL).
+function isSettingsPageWebContents(wc) {
+  if (!wc || typeof wc.getURL !== 'function' || wc.isDestroyed()) return false;
+  return isInternalSettingsPage({ sender: wc });
+}
+
+// True when a webContents is currently showing any Kairon-owned internal page
+// (home / history / settings / https-warning). These pages consume the public
+// feature snapshot to live-sync the global theme; receiving the snapshot is
+// harmless (it contains no secrets), and trust follows the loaded URL exactly
+// like the settings page. Normal websites can never match.
+function isInternalKaironPageWebContents(wc) {
+  if (!wc || typeof wc.getURL !== 'function' || wc.isDestroyed()) return false;
+  const urls = [getHomePageFileUrl(), getHistoryPageFileUrl(), getSettingsPageFileUrl(), getHttpsWarningPageFileUrl()].filter(Boolean);
+  if (!urls.length) return false;
+  try {
+    const current = wc.getURL();
+    if (!current) return false;
+    // Compare protocol + host + pathname only, so query/hash changes on the
+    // internal page keep working, and case is normalized for Windows paths.
+    const norm = (raw) => {
+      try {
+        const parsed = new URL(raw);
+        return `${parsed.protocol}${parsed.host}${parsed.pathname}`.toLowerCase();
+      } catch (e) {
+        return String(raw).toLowerCase();
+      }
+    };
+    const normCurrent = norm(current);
+    return urls.some((u) => norm(u) === normCurrent);
   } catch (e) {
     return false;
   }
@@ -851,15 +1005,32 @@ function deactivateAggressiveFallback() {
 
 function emitSettingsState(senderId = null) {
   const snapshot = featureStore.getPublicSnapshot();
+  // Keep Chromium's prefers-color-scheme media feature in lock-step with the
+  // persisted Theme Mode for every webContents (chrome, internal pages, and
+  // normal websites). Cheap and idempotent, so it runs on every settings
+  // change regardless of which feature actually changed.
+  syncNativeColorScheme();
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.webContents.id !== senderId) {
       mainWindow.webContents.send('settings-updated', snapshot);
     }
   }
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    if (settingsWindow.webContents.id !== senderId) {
-      settingsWindow.webContents.send('settings-updated', snapshot);
-    }
+  // Live-sync the omnibox overlay too — it is a trusted window (same preload
+  // and trust model as the chrome) and consumes the same theme snapshot so the
+  // suggestions dropdown re-skins instantly with the rest of the UI.
+  if (overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.webContents.id !== senderId) {
+    overlayWindow.webContents.send('settings-updated', snapshot);
+  }
+  // Live-sync every Kairon-owned internal page loaded in tabs (home, history,
+  // settings, https-warning). Trust follows the currently loaded URL: only
+  // webContents still on a local internal page receive updates, so a page that
+  // navigated away (or any normal website) loses the feed immediately.
+  for (const tab of tabs.values()) {
+    try {
+      const wc = tab.view && tab.view.webContents;
+      if (!wc || wc.isDestroyed() || wc.id === senderId) continue;
+      if (isInternalKaironPageWebContents(wc)) wc.send('settings-updated', snapshot);
+    } catch (e) { }
   }
 }
 
@@ -1058,10 +1229,16 @@ function isPlainHttpUrl(input) {
   } catch {
     return false;
   }
-}function buildLoadErrorPage({ attemptedUrl, errorCode, errorDescription }) {
+}function buildLoadErrorPage({ attemptedUrl, errorCode, errorDescription, theme }) {
   const safeUrl = String(attemptedUrl || '').replace(/[<>&"]/g, '');
   const safeCode = String(errorCode || '').replace(/[<>&"]/g, '');
   const safeDescription = String(errorDescription || 'Failed to load this page.').replace(/[<>&"]/g, '');
+  // The generated error page follows the global theme (dark values are the
+  // existing ones, unchanged).
+  const light = theme === 'light';
+  const palette = light
+    ? { bg: '#f0f0f0', card: '#f7f7f7', border: '#d8d8d8', text: '#1a1a1a', sub: '#5f5f5f', codeBg: '#e8e8e8', codeText: '#1a1a1a' }
+    : { bg: '#0b0b14', card: '#111427', border: '#272a3f', text: '#e4e6f5', sub: '#b7bbd6', codeBg: '#0a0e20', codeText: '#8bd0ff' };
   return `<!doctype html>
 <html>
 <head>
@@ -1069,11 +1246,11 @@ function isPlainHttpUrl(input) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Page unavailable</title>
   <style>
-    body{margin:0;background:#0b0b14;color:#e4e6f5;font-family:Segoe UI,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
-    .card{max-width:640px;padding:28px;border:1px solid #272a3f;border-radius:14px;background:#111427}
+    body{margin:0;background:${palette.bg};color:${palette.text};font-family:Segoe UI,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
+    .card{max-width:640px;padding:28px;border:1px solid ${palette.border};border-radius:14px;background:${palette.card}}
     h1{margin:0 0 10px;font-size:22px}
-    p{margin:0 0 8px;color:#b7bbd6;line-height:1.45}
-    code{display:block;margin-top:10px;padding:8px 10px;border-radius:8px;background:#0a0e20;color:#8bd0ff}
+    p{margin:0 0 8px;color:${palette.sub};line-height:1.45}
+    code{display:block;margin-top:10px;padding:8px 10px;border-radius:8px;background:${palette.codeBg};color:${palette.codeText}}
   </style>
 </head>
 <body>
@@ -1093,7 +1270,7 @@ function showHttpsOnlyWarning(tab, httpUrl) {
   tab.httpsOnlyWarningUrl = normalizedHttpUrl;
   tab.httpProceedUrl = normalizedHttpUrl;
   tab.isInternalHome = false;
-  tab.view.webContents.loadFile(HTTPS_WARNING_FILE, { query: { url: normalizedHttpUrl } })
+  tab.view.webContents.loadFile(HTTPS_WARNING_FILE, { query: { url: normalizedHttpUrl, ...getThemeQuery() } })
     .catch((err) => logError(`tab-${tab.id}-https-warning-load-failed`, err));
 }
 
@@ -1213,7 +1390,7 @@ function navigateTabToTarget(tab, target) {
   // Defense in depth: only web schemes (plus the internal home/history pages)
   // may ever reach loadURL(). All current callers normalize first, but this
   // keeps any future caller (e.g. popup handling) from loading local schemes.
-  if (!isAllowedHttpUrl(target) && !isHomeUrl(target) && !isHistoryUrl(target)) {
+  if (!isAllowedHttpUrl(target) && !isHomeUrl(target) && !isHistoryUrl(target) && !isSettingsUrl(target)) {
     if (DIAG) console.info('[tab] navigation target rejected', target);
     return;
   }
@@ -1221,14 +1398,32 @@ function navigateTabToTarget(tab, target) {
     tab.isInternalHome = true;
     tab.url = HOME_PAGE_URL;
     tab.title = 'Home';
-    tab.view.webContents.loadFile(HOME_PAGE_FILE).catch((err) => logError(`tab-${tab.id}-home-load-failed`, err));
+    // Pass the persisted theme so the page renders it before first paint.
+    tab.view.webContents.loadFile(HOME_PAGE_FILE, { query: getThemeQuery() }).catch((err) => logError(`tab-${tab.id}-home-load-failed`, err));
     return;
   }
   if (isHistoryUrl(target)) {
     tab.isInternalHome = true;
     tab.url = 'kairon://history';
     tab.title = 'History';
-    tab.view.webContents.loadFile(HISTORY_PAGE_FILE).catch((err) => logError(`tab-${tab.id}-history-load-failed`, err));
+    // Pass the persisted theme so the page renders it before first paint.
+    tab.view.webContents.loadFile(HISTORY_PAGE_FILE, { query: getThemeQuery() }).catch((err) => logError(`tab-${tab.id}-history-load-failed`, err));
+    return;
+  }
+  if (isSettingsUrl(target)) {
+    // Internal settings page — loaded locally, never remote content. Deep
+    // links (kairon://settings/<section>) are passed through as a query so
+    // the page can open the requested category.
+    tab.isInternalHome = true;
+    tab.url = target;
+    tab.title = 'Settings';
+    const section = getSettingsSectionFromUrl(target);
+    // Pass the persisted theme (and any deep-link section) as query params so
+    // the page can render the correct theme before first paint. The page still
+    // re-applies the authoritative value from its live snapshot on load.
+    const query = getThemeQuery();
+    if (section) query.section = section;
+    tab.view.webContents.loadFile(SETTINGS_PAGE_FILE, { query }).catch((err) => logError(`tab-${tab.id}-settings-load-failed`, err));
     return;
   }
   tab.isInternalHome = false;
@@ -1461,7 +1656,7 @@ function createTab(initialTarget = HOME_PAGE_URL) {
       }
       return;
     }
-    const html = buildLoadErrorPage({ attemptedUrl: validatedURL, errorCode, errorDescription });
+    const html = buildLoadErrorPage({ attemptedUrl: validatedURL, errorCode, errorDescription, theme: getCurrentThemeMode() });
     const dataUrl = `data:text/html;charset=UTF-8,${encodeURIComponent(html)}`;
     tab.view.webContents.loadURL(dataUrl).catch((err) => logError(`tab-${id}-error-page-load-failed`, err));
   };
@@ -2126,7 +2321,9 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     frame: false,
-    backgroundColor: '#080810',
+    // Match the window's pre-load background to the persisted theme so there
+    // is no dark/light flash while the chrome renderer boots.
+    backgroundColor: getCurrentThemeMode() === 'light' ? '#f0f0f0' : '#080810',
     icon: appIcon,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -2137,7 +2334,7 @@ function createWindow() {
     show: false,
   });
 
-  mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+  mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: getThemeQuery() });
 
   // ═══════════════════════════════════════════════════════════════
   // CHROME SHELL ZOOM LOCK: Ensure the main window's own webContents
@@ -2267,11 +2464,9 @@ function createWindow() {
 
   mainWindow.on('resize', () => {
     updateBounds();
-    updateSettingsWindowBounds();
   });
   mainWindow.on('move', () => {
     updateOverlayBounds();
-    updateSettingsWindowBounds();
   });
 
   // When the window regains OS focus (Alt+Tab return, settings/overlay closing),
@@ -2331,10 +2526,6 @@ function createWindow() {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.close();
       overlayWindow = null;
-    }
-    if (settingsWindow && !settingsWindow.isDestroyed()) {
-      settingsWindow.close();
-      settingsWindow = null;
     }
     activeTabId = null;
     tabs.clear();
@@ -2585,7 +2776,10 @@ function createOverlayWindow() {
     },
   });
 
-  overlayWindow.loadFile(path.join(__dirname, '../renderer/overlay.html'))
+  // Pass the persisted theme so the suggestions dropdown renders it before
+  // first paint (same pattern as every other Kairon-owned page); live changes
+  // arrive via settings-updated from emitSettingsState.
+  overlayWindow.loadFile(path.join(__dirname, '../renderer/overlay.html'), { query: getThemeQuery() })
     .then(() => {
       overlayWindow.show();
       overlayWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -2596,73 +2790,6 @@ function createOverlayWindow() {
     });
 }
 
-let _lastSettingsWindowBounds = null;
-function updateSettingsWindowBounds() {
-  if (!mainWindow || mainWindow.isDestroyed() || !settingsWindow || settingsWindow.isDestroyed()) return;
-  const bounds = mainWindow.getContentBounds();
-  const prev = _lastSettingsWindowBounds;
-  if (!prev || bounds.x !== prev.x || bounds.y !== prev.y || bounds.width !== prev.width || bounds.height !== prev.height) {
-    _lastSettingsWindowBounds = bounds;
-    settingsWindow.setBounds(bounds);
-  }
-}
-
-function createSettingsWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-
-  // Fresh window → never trust cached bounds from a previous settings instance.
-  _lastSettingsWindowBounds = null;
-
-  settingsWindow = new BrowserWindow({
-    parent: mainWindow,
-    frame: false,
-    show: false,
-    resizable: false,
-    movable: false,
-    minimizable: false,
-    maximizable: false,
-    skipTaskbar: true,
-    hasShadow: false,
-    backgroundColor: '#08090f',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
-  settingsWindow.on('closed', () => { settingsWindow = null; });
-
-  settingsWindow.loadFile(path.join(__dirname, '../renderer/settings.html'))
-    .then(() => {
-      updateSettingsWindowBounds();
-      settingsWindow.show();
-      settingsWindow.focus();
-    })
-    .catch((err) => {
-      logError('settings-load-failed', err);
-    });
-
-  if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-    overlayWindow.webContents.send('overlay-hide');
-    activeOverlaySuggestions = null;
-  }
-}
-
-function openSettingsWindow() {
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    updateSettingsWindowBounds();
-    settingsWindow.show();
-    settingsWindow.focus();
-    return;
-  }
-  createSettingsWindow();
-}
-
-function closeSettingsWindow() {
-  if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();
-}
 
 // Dynamic reconfiguration helper for adblocker: called when settings change.
 async function reconfigureAdblocker() {
@@ -2786,6 +2913,12 @@ async function reconfigureAdblocker() {
     _adblockReconfigLock = false;
   }
 }
+
+// Settings IPC is only reachable from trusted windows and from the internal
+// settings page itself. Trust follows the currently loaded URL: if the page
+// navigates away from the local settings.html file, event.sender.getURL() no
+// longer matches and privileges are revoked immediately.
+const _isSettingsTrusted = (event) => isTrustedIpcSender(event) || (isTabBrowserView(event) && isInternalSettingsPage(event));
 
 // ── IPC ──
 ipcMain.on('show-overlay-suggestions', (event, payload) => {
@@ -3079,18 +3212,8 @@ ipcMain.on('toggle-sidebar', (event, open) => {
   updateBounds();
 });
 
-ipcMain.handle('open-settings', () => {
-  openSettingsWindow();
-  return true;
-});
-
-ipcMain.handle('close-settings', () => {
-  closeSettingsWindow();
-  return true;
-});
-
 ipcMain.handle('restart-app', (event) => {
-  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  if (!_isSettingsTrusted(event)) throw new Error('Unauthorized IPC sender');
   // app.exit() does NOT emit before-quit, so flush the debounced session
   // snapshot and stop the sleeping-tabs sweep explicitly before restarting.
   try { flushSessionPersist(); } catch (e) { }
@@ -3241,7 +3364,7 @@ ipcMain.handle('store-set', (event, key, value) => {
   return true;
 });
 ipcMain.handle('log-error', (event, payload) => {
-  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  if (!_isSettingsTrusted(event)) throw new Error('Unauthorized IPC sender');
   if (!payload || typeof payload.source !== 'string' || typeof payload.message !== 'string') {
     throw new Error('Invalid error payload');
   }
@@ -3250,7 +3373,7 @@ ipcMain.handle('log-error', (event, payload) => {
 });
 
 ipcMain.handle('settings-get-state', (event) => {
-  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  if (!_isSettingsTrusted(event)) throw new Error('Unauthorized IPC sender');
   return featureStore.getPublicSnapshot();
 });
 
@@ -3267,7 +3390,7 @@ ipcMain.handle('get-adblock-mode', (event) => {
 });
 
 ipcMain.handle('settings-set-feature-enabled', (event, featureId, enabled) => {
-  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  if (!_isSettingsTrusted(event)) throw new Error('Unauthorized IPC sender');
   if (typeof featureId !== 'string' || featureId.length > 128 || typeof enabled !== 'boolean') {
     throw new Error('Invalid settings payload');
   }
@@ -3325,7 +3448,7 @@ ipcMain.handle('settings-set-feature-enabled', (event, featureId, enabled) => {
 });
 
 ipcMain.handle('settings-update-feature-config', (event, featureId, patch) => {
-  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  if (!_isSettingsTrusted(event)) throw new Error('Unauthorized IPC sender');
   if (typeof featureId !== 'string' || featureId.length > 128 || !patch || typeof patch !== 'object') {
     throw new Error('Invalid settings payload');
   }
@@ -3338,7 +3461,7 @@ ipcMain.handle('settings-update-feature-config', (event, featureId, patch) => {
 });
 
 ipcMain.handle('settings-reset-feature', (event, featureId) => {
-  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  if (!_isSettingsTrusted(event)) throw new Error('Unauthorized IPC sender');
   if (typeof featureId !== 'string' || featureId.length > 128) throw new Error('Invalid feature id');
   const ok = featureStore.resetFeature(featureId);
   if (!ok) throw new Error('Unknown feature');
@@ -3349,7 +3472,7 @@ ipcMain.handle('settings-reset-feature', (event, featureId) => {
 });
 
 ipcMain.handle('settings-reset-all', (event) => {
-  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  if (!_isSettingsTrusted(event)) throw new Error('Unauthorized IPC sender');
   featureStore.resetAll();
   applyWebRtcProtectionToTabs();
   emitSettingsState(event.sender.id);
@@ -3358,12 +3481,12 @@ ipcMain.handle('settings-reset-all', (event) => {
 });
 
 ipcMain.handle('settings-export', (event) => {
-  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  if (!_isSettingsTrusted(event)) throw new Error('Unauthorized IPC sender');
   return featureStore.exportJson();
 });
 
 ipcMain.handle('settings-import', (event, jsonText) => {
-  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  if (!_isSettingsTrusted(event)) throw new Error('Unauthorized IPC sender');
   if (typeof jsonText !== 'string' || jsonText.length > MAX_SETTINGS_PAYLOAD_LENGTH) {
     throw new Error('Invalid settings import payload');
   }
@@ -3399,6 +3522,11 @@ ipcMain.handle('run-network-diagnostics', async (event) => {
 });
 
 app.whenReady().then(async () => {
+  // Restore the persisted Theme Mode into Chromium's prefers-color-scheme
+  // before any window loads, so first paint and every subsequent website
+  // already observe Kairon's selected color scheme.
+  syncNativeColorScheme();
+
   initializeLogging();
 
   // Initialize history service
