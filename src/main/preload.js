@@ -1,5 +1,22 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// ── INCOGNITO CHROME DETECTION ────────────────────────────────
+// The Incognito window reuses this same preload but talks to a dedicated set
+// of incognito-* IPC channels owned by the Incognito browser (src/main/
+// incognito.js), so its chrome and tabs never touch the normal browser's
+// state. Detection is by query flag: the Incognito window loads its chrome
+// via loadFile(..., { query: { incognito: '1' } }). Incognito TAB views load
+// websites/internal pages WITHOUT that flag, so they keep the normal (non-
+// prefixed) API — those handlers are read-only/global and shared.
+const IS_INCOGNITO_CHROME = (() => {
+  try {
+    return /[?&]incognito=1(&|$)/.test(location.search);
+  } catch (e) {
+    return false;
+  }
+})();
+const CHANNEL_PREFIX = IS_INCOGNITO_CHROME ? 'incognito-' : '';
+
 // Strip external preload/preconnect hints in loaded web pages to reduce
 // "preloaded but not used" console warnings. This only runs for http(s)
 // pages and intentionally skips the app shell files.
@@ -117,6 +134,9 @@ const INVOKE_CHANNELS = new Set([
   'downloads-open',
   'downloads-show-in-folder',
   'downloads-open-folder',
+  'downloads-get-location',
+  'downloads-set-location',
+  'downloads-reset-location',
 ]);
 const RECEIVE_CHANNELS = new Set([
   'url-changed',
@@ -242,20 +262,20 @@ const RECEIVE_CHANNELS = new Set([
 
 function send(channel, payload) {
   if (!SEND_CHANNELS.has(channel)) throw new Error(`Blocked IPC channel: ${channel}`);
-  ipcRenderer.send(channel, payload);
+  ipcRenderer.send(CHANNEL_PREFIX + channel, payload);
 }
 
 function invoke(channel, ...args) {
   if (!INVOKE_CHANNELS.has(channel)) throw new Error(`Blocked IPC channel: ${channel}`);
-  return ipcRenderer.invoke(channel, ...args);
+  return ipcRenderer.invoke(CHANNEL_PREFIX + channel, ...args);
 }
 
 function on(channel, callback) {
   if (!RECEIVE_CHANNELS.has(channel)) throw new Error(`Blocked IPC channel: ${channel}`);
   if (typeof callback !== 'function') throw new Error('IPC callback must be a function');
   const listener = (_, payload) => callback(payload);
-  ipcRenderer.on(channel, listener);
-  return () => ipcRenderer.removeListener(channel, listener);
+  ipcRenderer.on(CHANNEL_PREFIX + channel, listener);
+  return () => ipcRenderer.removeListener(CHANNEL_PREFIX + channel, listener);
 }
 
 const api = {
@@ -328,6 +348,13 @@ const api = {
   showDownloadInFolder: (id) => invoke('downloads-show-in-folder', id),
   openDownloadsFolder: () => invoke('downloads-open-folder'),
   onDownloadsUpdated: (cb) => on('downloads-updated', cb),
+
+  // ── Downloads location (settings-managed, main-process filesystem) ──
+  // Never exposes filesystem APIs to renderers — only the current location
+  // plus explicit user actions, all handled in the main process.
+  getDownloadsLocation: () => invoke('downloads-get-location'),
+  chooseDownloadsLocation: () => invoke('downloads-set-location'),
+  resetDownloadsLocation: () => invoke('downloads-reset-location'),
 
   // ── Downloads panel (browser chrome floating panel) ──────
   // The panel is rendered by the existing overlay window; the main renderer

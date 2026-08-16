@@ -13,6 +13,13 @@ const { setupTabContextMenu } = require('./tab-context-menu');
 const { HistoryService } = require('./history');
 const { TabSleepManager } = require('./tab-sleep');
 const { DownloadManager } = require('./downloads');
+const {
+  openIncognitoWindow,
+  registerIncognitoBrowser,
+  broadcastSettingsToIncognito,
+  isIncognitoChromeWebContents,
+  isIncognitoTabWebContents,
+} = require('./incognito');
 
 const APP_USER_MODEL_ID = 'com.kairon.browser';
 
@@ -397,6 +404,9 @@ const HOME_PAGE_FILE = path.join(__dirname, '../renderer/home.html');
 const HISTORY_PAGE_FILE = path.join(__dirname, '../renderer/history.html');
 const DOWNLOAD_PAGE_URL = 'kairon://downloads';
 const DOWNLOAD_PAGE_FILE = path.join(__dirname, '../renderer/downloads.html');
+// The Incognito home/new-tab page — a trusted internal page loaded only by
+// the Incognito window (see incognito.js).
+const INCOGNITO_PAGE_FILE = path.join(__dirname, '../renderer/incognito_mode.html');
 const HTTPS_WARNING_FILE = path.join(__dirname, '../renderer/https-warning.html');
 const ERROR_PAGE_FILE = path.join(__dirname, "../renderer/can't_be_reached.html");
 const IP_NOT_FOUND_FILE = path.join(__dirname, '../renderer/ip_not_found.html');
@@ -508,6 +518,9 @@ function isTrustedIpcSender(event) {
   // Allow messages from the main renderer and from the overlay renderer (if present)
   if (event.sender === mainWindow.webContents) return true;
   if (overlayWindow && !overlayWindow.isDestroyed() && event.sender === overlayWindow.webContents) return true;
+  // The Incognito window's own chrome is trusted the same way (its IPC is
+  // prefixed with incognito-* so it never touches normal browser state).
+  if (isIncognitoChromeWebContents(event.sender)) return true;
   return false;
 }
 
@@ -521,6 +534,9 @@ function isTabBrowserView(event) {
   for (const tab of tabs.values()) {
     if (tab.view && tab.view.webContents === event.sender) return true;
   }
+  // Incognito tabs are BrowserViews from the Incognito window — recognized so
+  // their internal pages can use the same shared (unprefixed) read-only IPC.
+  if (isIncognitoTabWebContents(event.sender)) return true;
   return false;
 }
 
@@ -767,6 +783,43 @@ function isInternalDownloadsPage(event) {
   }
 }
 
+let _incognitoPageFileUrl = null;
+function getIncognitoPageFileUrl() {
+  if (_incognitoPageFileUrl === null) {
+    try {
+      _incognitoPageFileUrl = pathToFileURL(INCOGNITO_PAGE_FILE).href;
+    } catch (e) {
+      _incognitoPageFileUrl = '';
+    }
+  }
+  return _incognitoPageFileUrl;
+}
+
+// The Incognito home/new-tab page (incognito_mode.html) is a trusted Kairon
+// internal page: it consumes the global theme snapshot, and is only ever
+// loaded by the Incognito window (normal tabs cannot load file: URLs). Trust
+// follows the currently loaded URL, same model as the history/settings pages.
+function isInternalIncognitoPage(event) {
+  if (!event || !event.sender || typeof event.sender.getURL !== 'function') return false;
+  const target = getIncognitoPageFileUrl();
+  if (!target) return false;
+  try {
+    const current = event.sender.getURL();
+    if (!current) return false;
+    const norm = (raw) => {
+      try {
+        const parsed = new URL(raw);
+        return `${parsed.protocol}${parsed.host}${parsed.pathname}`.toLowerCase();
+      } catch (e) {
+        return String(raw).toLowerCase();
+      }
+    };
+    return norm(current) === norm(target);
+  } catch (e) {
+    return false;
+  }
+}
+
 // True when a webContents is currently showing the internal settings page.
 // Used by emitSettingsState so live settings updates only reach pages that
 // still have privileged access (trust follows the loaded URL).
@@ -782,7 +835,7 @@ function isSettingsPageWebContents(wc) {
 // like the settings page. Normal websites can never match.
 function isInternalKaironPageWebContents(wc) {
   if (!wc || typeof wc.getURL !== 'function' || wc.isDestroyed()) return false;
-  const urls = [getHomePageFileUrl(), getHistoryPageFileUrl(), getDownloadsPageFileUrl(), getSettingsPageFileUrl(), getHttpsWarningPageFileUrl(), getErrorPageFileUrl(), getIpNotFoundPageFileUrl()].filter(Boolean);
+  const urls = [getHomePageFileUrl(), getHistoryPageFileUrl(), getDownloadsPageFileUrl(), getSettingsPageFileUrl(), getHttpsWarningPageFileUrl(), getErrorPageFileUrl(), getIpNotFoundPageFileUrl(), getIncognitoPageFileUrl()].filter(Boolean);
   if (!urls.length) return false;
   try {
     const current = wc.getURL();
@@ -1154,6 +1207,12 @@ function emitSettingsState(senderId = null) {
       if (isInternalKaironPageWebContents(wc)) wc.send('settings-updated', snapshot);
     } catch (e) { }
   }
+  // The Incognito window follows the same global theme: its chrome consumes
+  // the snapshot over incognito-settings-updated, and its tabs showing the
+  // Incognito home page consume it over the standard settings-updated push.
+  try {
+    broadcastSettingsToIncognito(snapshot, senderId);
+  } catch (e) { }
 }
 
 function getActiveTab() {
@@ -1860,6 +1919,14 @@ function createTab(initialTarget = HOME_PAGE_URL) {
     }
     const isMod = process.platform === 'darwin' ? input.meta : input.control;
     if (!isMod) return;
+
+    // Ctrl+Shift+N — open a new Incognito window (or focus the existing one).
+    // Exact combo only; does not collide with any existing shortcut.
+    if ((input.key === 'n' || input.key === 'N' || input.code === 'KeyN') && input.shift && !input.alt) {
+      event.preventDefault();
+      openIncognitoWindow();
+      return;
+    }
 
     // Ctrl+Tab / Ctrl+Shift+Tab — cycle to the adjacent tab in the current
     // tab order (Map insertion order), wrapping at both ends. Intercepted here
@@ -2588,6 +2655,14 @@ function createWindow() {
       toggleBrowserFullscreen();
       return;
     }
+    // Ctrl+Shift+N — open a new Incognito window (or focus the existing one)
+    // while the browser chrome holds focus. Exact combo only.
+    if ((input.key === 'n' || input.key === 'N' || input.code === 'KeyN') && input.shift && !input.alt &&
+        (process.platform === 'darwin' ? input.meta : input.control)) {
+      event.preventDefault();
+      openIncognitoWindow();
+      return;
+    }
     // Ctrl+Tab / Ctrl+Shift+Tab — cycle tabs while browser chrome holds focus
     // (address bar, AI input, etc.). Mirrors the per-tab handler so the
     // shortcut behaves identically regardless of where keyboard focus is.
@@ -3197,7 +3272,7 @@ async function reconfigureAdblocker() {
 // settings page itself. Trust follows the currently loaded URL: if the page
 // navigates away from the local settings.html file, event.sender.getURL() no
 // longer matches and privileges are revoked immediately.
-const _isSettingsTrusted = (event) => isTrustedIpcSender(event) || (isTabBrowserView(event) && isInternalSettingsPage(event));
+const _isSettingsTrusted = (event) => isTrustedIpcSender(event) || (isTabBrowserView(event) && isInternalSettingsPage(event)) || isInternalIncognitoPage(event);
 
 // ── IPC ──
 ipcMain.on('show-overlay-suggestions', (event, payload) => {
@@ -3835,10 +3910,12 @@ app.whenReady().then(async () => {
   const sess = session.fromPartition('persist:browser');
   installTelemetryRequestBlocker(sess);
 
-  // Initialize the download manager — it observes Electron's existing
-  // 'will-download' pipeline (no custom save prompts or paths are added).
+  // Initialize the download manager — it routes every download to the
+  // configured directory (system Downloads by default, or the user's chosen
+  // folder persisted in the settings FeatureStore) and never shows a Save As
+  // dialog for normal downloads.
   try {
-    downloadManager = new DownloadManager({ store, onStateChange: broadcastDownloadsState });
+    downloadManager = new DownloadManager({ store, featureStore, onStateChange: broadcastDownloadsState });
     downloadManager.attach(sess);
   } catch (e) {
     logError('downloads-init-failed', e);
@@ -4007,6 +4084,47 @@ app.whenReady().then(async () => {
     return downloadManager.openDownloadsFolder();
   });
 
+  // ── DOWNLOAD LOCATION IPC (trusted windows + internal settings/downloads pages) ──
+
+  // The download directory preference lives in the settings FeatureStore, so
+  // both the internal settings page (where it is managed) and trusted windows
+  // may read it. Changing it only affects future downloads.
+  const _isDownloadLocationTrusted = (event) =>
+    isTrustedIpcSender(event) ||
+    (isTabBrowserView(event) && (isInternalSettingsPage(event) || isInternalDownloadsPage(event)));
+
+  ipcMain.handle('downloads-get-location', (event) => {
+    if (!_isDownloadLocationTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager) return { path: '', isDefault: true };
+    return downloadManager.getDownloadLocationInfo();
+  });
+
+  // Opens the native folder picker — only ever on explicit user action from
+  // Settings ("Change"), never during normal downloads. Selecting a folder
+  // persists it and returns the new location; cancelling returns null.
+  ipcMain.handle('downloads-set-location', async (event) => {
+    if (!_isDownloadLocationTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager) return null;
+    const current = downloadManager.getDownloadDirectory();
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose downloads folder',
+      defaultPath: current,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || !result.filePaths || !result.filePaths.length) return null;
+    const info = downloadManager.setDownloadDirectory(result.filePaths[0]);
+    if (info) emitSettingsState(event.sender.id);
+    return info;
+  });
+
+  ipcMain.handle('downloads-reset-location', (event) => {
+    if (!_isDownloadLocationTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager) return { path: '', isDefault: true };
+    const info = downloadManager.resetDownloadDirectory();
+    emitSettingsState(event.sender.id);
+    return info;
+  });
+
   // ── DOWNLOADS PANEL IPC ───────────────────────────────────
   // The main renderer anchors the panel by sending the Downloads button's
   // rect; main sizes the overlay to the panel and tells it to render.
@@ -4065,6 +4183,26 @@ app.whenReady().then(async () => {
 
   createWindow();
   tabSleepManager.start();
+
+  // Register the Incognito browser with the shared services it needs (theme,
+  // settings, error logging, icon). It keeps its own window/tabs/session and
+  // never touches normal browsing state. Ctrl+Shift+N opens it via
+  // openIncognitoWindow() above.
+  try {
+    registerIncognitoBrowser({
+      getCurrentThemeMode,
+      getThemeQuery,
+      featureStore,
+      store,
+      emitSettingsState,
+      reconfigureAdblocker,
+      logError,
+      getAppIcon,
+    });
+  } catch (e) {
+    logError('incognito-register-failed', e);
+  }
+
   // If adblock CSS is already available, inject into any created tabs and notify renderer.
   try {
     if (adblockerService && adblockerService.css) {

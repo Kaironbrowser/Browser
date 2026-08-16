@@ -77,9 +77,13 @@ const FEATURE_REGISTRY = [
     id: 'downloadManager',
     name: 'Download Manager',
     category: 'advanced',
+    // Downloads always start automatically and save to the configured
+    // directory — the system Downloads folder by default, or a user-chosen
+    // folder stored in defaultPath. Kairon never shows a Save As dialog for
+    // normal downloads.
     defaultEnabled: true,
     settings: {
-      askEveryDownload: true,
+      askEveryDownload: false,
       defaultPath: '',
     },
   },

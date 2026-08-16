@@ -865,6 +865,34 @@
    }
    #downloads-badge.hidden { display: none; }
 
+   /* Incognito state indicator — hidden in the normal browser, shown only in
+      the Incognito window (body[data-incognito], set by ui.js when the chrome
+      loads with ?incognito=1). Same surface language as the rest of the chrome. */
+   .incognito-badge {
+     display: none;
+     align-items: center;
+     gap: 7px;
+     height: 26px;
+     padding: 0 10px;
+     flex-shrink: 0;
+     border: 1px solid var(--border-1);
+     border-radius: var(--r-sm);
+     background: var(--surface-1);
+     color: var(--text-secondary);
+     font-size: 10px;
+     font-weight: 600;
+     letter-spacing: 0.14em;
+     text-transform: uppercase;
+     white-space: nowrap;
+     user-select: none;
+   }
+   body[data-incognito] .incognito-badge {
+     display: inline-flex;
+   }
+   body[data-incognito] .incognito-badge svg {
+     opacity: 0.9;
+   }
+
    #zoom-controls {
      height: 30px;
      display: inline-flex;

@@ -275,6 +275,15 @@
   .nested .select{width:181px}
   .text-input{width:258px;height:30px;border:1px solid var(--input-border);border-radius:4px;background:var(--input-bg);padding:0 10px;font-size:10px;color:var(--text-input-text);outline:none}
   .text-input::placeholder{color:var(--input-placeholder)}
+
+  /* Downloads section controls */
+  .btn{height:28px;padding:0 13px;border:1px solid var(--btn-border);border-radius:4px;background:var(--btn-bg);color:var(--btn-text);font-size:10px;white-space:nowrap;flex:none}
+  .btn:hover{background:var(--btn-hover-bg);border-color:var(--btn-hover-border)}
+  .location-field{display:flex;align-items:center;gap:9px;min-width:0;flex:1}
+  .location-field .text-input{flex:1;min-width:120px;max-width:340px;color:var(--select-text)}
+  .location-badge{font-size:9px;letter-spacing:.25px;text-transform:uppercase;color:var(--muted-2);border:1px solid var(--line);border-radius:3px;padding:3px 7px;flex:none;white-space:nowrap}
+  .location-badge.is-custom{color:var(--text);border-color:var(--segment-selected-border)}
+  .downloads .row{min-height:56px}
   .security .row{min-height:49px}
   .chevron{width:14px;height:14px;stroke:var(--chevron);stroke-width:1.2;fill:none;flex:none}
   .advanced-card{display:grid;grid-template-columns:1fr 1fr 1.12fr}
@@ -390,6 +399,7 @@
       <div class="nav-item active" role="button" tabindex="0" data-cat="appearance" aria-current="page"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="1"/><path d="M3.5 9h17"/></svg><span>Appearance</span></div>
       <div class="nav-item" role="button" tabindex="0" data-cat="privacy"><svg viewBox="0 0 24 24"><path d="M12 3 19 6v5c0 4.6-2.8 8.1-7 10-4.2-1.9-7-5.4-7-10V6l7-3Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg><span>Privacy</span></div>
       <div class="nav-item" role="button" tabindex="0" data-cat="security"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg><span>Security</span></div>
+      <div class="nav-item" role="button" tabindex="0" data-cat="downloads"><svg viewBox="0 0 24 24"><path d="M12 3v10M8 9l4 4 4-4"/><path d="M5 17v3h14v-3"/></svg><span>Downloads</span></div>
       <div class="nav-item" role="button" tabindex="0" data-cat="advanced"><svg viewBox="0 0 24 24"><path d="M5 4v5M5 15v5M12 4v9M12 19v1M19 4v2M19 12v8"/><path d="M3 9h4M10 13h4M17 6h4"/></svg><span>Advanced</span></div>
     </nav>
     <div class="sidebar-footer"><strong>Kairon Browser</strong>1.0.0</div>
@@ -422,6 +432,28 @@
       <div class="action" role="button" tabindex="0" data-action="export"><svg class="row-icon" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4M5 13v6h14v-6"/></svg><div class="row-copy"><div class="row-title">Export settings</div><div class="row-desc">Save your settings to a file.</div></div><svg class="chevron" viewBox="0 0 14 14"><path d="m5 2 5 5-5 5"/></svg></div>
       <div class="action" role="button" tabindex="0" data-action="import"><svg class="row-icon" viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M5 13v6h14v-6"/></svg><div class="row-copy"><div class="row-title">Import settings</div><div class="row-desc">Load settings from a file.</div></div><svg class="chevron" viewBox="0 0 14 14"><path d="m5 2 5 5-5 5"/></svg></div>
       <div class="action" role="button" tabindex="0" data-action="reset"><svg class="row-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/></svg><div class="row-copy"><div class="row-title">Reset all settings</div><div class="row-desc">Restore default settings.</div></div><svg class="chevron" viewBox="0 0 14 14"><path d="m5 2 5 5-5 5"/></svg></div>
+    </div></section>
+
+    <section class="section downloads" data-cat="downloads"><h2 class="section-label">Downloads location</h2><div class="card">
+      <div class="row">
+        <svg class="row-icon" viewBox="0 0 24 24"><path d="M12 3v10M8 9l4 4 4-4"/><path d="M5 17v3h14v-3"/></svg>
+        <div class="row-copy"><div class="row-title">Downloads location</div><div class="row-desc" id="downloads-location-note">Files save automatically with no prompt.</div></div>
+        <div class="location-field">
+          <input id="downloads-location-path" class="text-input" readonly spellcheck="false" aria-label="Downloads folder path" title="">
+          <span id="downloads-location-badge" class="location-badge">Default</span>
+        </div>
+        <button id="downloads-change" class="btn">Change</button>
+      </div>
+      <div class="row">
+        <svg class="row-icon" viewBox="0 0 24 24"><path d="M3 7a1 1 0 0 1 1-1h4l2 2h10a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z"/></svg>
+        <div class="row-copy"><div class="row-title">Open download folder</div><div class="row-desc" id="downloads-location-path-desc">Open the folder where files are saved.</div></div>
+        <button id="downloads-open-folder" class="btn">Open folder</button>
+      </div>
+      <div class="row">
+        <svg class="row-icon" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4"/></svg>
+        <div class="row-copy"><div class="row-title">Reset to default</div><div class="row-desc">Save future downloads to your system Downloads folder. Existing files are not moved.</div></div>
+        <button id="downloads-reset" class="btn">Reset to default</button>
+      </div>
     </div></section>
   </section>
 </main>

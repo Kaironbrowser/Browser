@@ -139,6 +139,21 @@
         </div>
       </div>
 
+      <!-- Incognito state indicator — hidden in the normal browser, shown only
+           when the window loads with ?incognito=1 (body[data-incognito] set by
+           ui.js). The Incognito window reuses this exact same chrome. -->
+      <span class="incognito-badge" id="incognito-badge" title="This window won't save your browsing history, cookies, or site data." aria-label="Incognito">
+        <svg width="10" height="10" viewBox="0 0 106 94" fill="none" aria-hidden="true">
+          <g stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M27 39 34.4 14.2c.9-3.2 3.8-5.2 7.1-5.2h23c3.3 0 6.2 2 7.1 5.2L79 39"/>
+            <circle cx="35" cy="70" r="14"/>
+            <circle cx="71" cy="70" r="14"/>
+            <path d="M49 70h8"/>
+          </g>
+        </svg>
+        <span>Incognito</span>
+      </span>
+
       <div id="zoom-controls" role="group" aria-label="Page zoom controls">
         <button class="zoom-btn" id="btn-zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
         <span id="zoom-value" aria-live="polite">100%</span>

@@ -5,6 +5,21 @@
 
 const HOME_PAGE_URL = 'kairon://home';
 
+// ── INCOGNITO STATE ────────────────────────────────────────────
+// The Incognito window loads the EXACT SAME chrome (index.html + this UI
+// controller) with ?incognito=1 — only the session (main-process side) and
+// this flag differ. The flag is inert in the normal browser, so the normal
+// UI is untouched; in the Incognito window it shows the badge and treats the
+// Incognito home page like the regular new-tab page.
+const IS_INCOGNITO = (() => {
+  try { return /[?&]incognito=1(&|$)/.test(location.search); } catch (e) { return false; }
+})();
+const INC_INCOGNITO_HOME_URL = 'kairon://incognito';
+if (IS_INCOGNITO) {
+  try { document.body.dataset.incognito = '1'; } catch (e) { }
+  try { document.title = 'Kairon — Incognito'; } catch (e) { }
+}
+
 // Debug-logging gate for the renderer UI. Production builds emit no console
 // output from the app shell.
 const UI_DIAG = false;
@@ -93,7 +108,9 @@ function _setSleepBadge(titleEl, sleeping) {
 }
 
 function getAddressDisplayValue(url) {
-  return url === HOME_PAGE_URL ? '' : (url || '');
+  if (url === HOME_PAGE_URL) return '';
+  if (IS_INCOGNITO && url === INC_INCOGNITO_HOME_URL) return '';
+  return (url || '');
 }
 
 export function createUiController(kairon, store, onLayoutChange) {
@@ -328,7 +345,7 @@ export function createUiController(kairon, store, onLayoutChange) {
   let _hasRendered = false;
 
   function _computeFaviconDesc(url) {
-    if (url === HOME_PAGE_URL) return { kind: 'svg', svg: ICON_KAIRON, src: '' };
+    if (url === HOME_PAGE_URL || (IS_INCOGNITO && url === INC_INCOGNITO_HOME_URL)) return { kind: 'svg', svg: ICON_KAIRON, src: '' };
     const faviconUrl = getFaviconUrl(url);
     if (faviconUrl) return { kind: 'img', svg: '', src: faviconUrl };
     return { kind: 'svg', svg: ICON_GLOBE, src: '' };

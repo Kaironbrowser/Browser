@@ -1,8 +1,11 @@
 // ============================================================
 //  DOWNLOAD MANAGER — Kairon Browser
-//  Observes Electron's session 'will-download' events (the same
-//  default download pipeline Kairon already uses — no custom
-//  download path or prompt is introduced) and exposes a live,
+//  Handles Electron's session 'will-download' events with modern
+//  browser UX: every download starts automatically and saves
+//  straight to the configured directory (the system Downloads
+//  folder by default, or a user-chosen folder persisted in the
+//  settings FeatureStore). A Windows "Save As" dialog is never
+//  shown for normal downloads. The manager also exposes a live,
 //  persisted download list to the browser chrome, the downloads
 //  panel, and the internal kairon://downloads page.
 //
@@ -12,14 +15,57 @@
 //  Persistence: completed (and failed/interrupted) entries are
 //  stored in electron-store under downloads.history.v1 so the
 //  downloads list survives restarts. Clearing the list only
-//  removes entries — files on disk are never deleted.
+//  removes entries — files on disk are never deleted. The chosen
+//  download directory is stored in the settings FeatureStore
+//  (feature 'downloadManager', setting 'defaultPath') so it
+//  survives restarts and participates in export/import/reset.
 // ============================================================
 
 const { app, shell } = require('electron');
+const path = require('path');
+const fs = require('fs');
 
 const STORE_KEY = 'downloads.history.v1';
 const MAX_HISTORY = 200;
 const PUSH_THROTTLE_MS = 150;
+const DOWNLOAD_FEATURE_ID = 'downloadManager';
+const CUSTOM_PATH_SETTING = 'defaultPath';
+
+// The system Downloads folder, resolved through Electron's OS APIs so the
+// real per-user directory is always used (never a hardcoded username).
+function getDefaultDownloadDirectory() {
+  try {
+    const dir = app.getPath('downloads');
+    if (typeof dir === 'string' && dir.trim()) return dir;
+  } catch (e) { /* fall through */ }
+  try {
+    return path.join(app.getPath('home'), 'Downloads');
+  } catch (e) {
+    return process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'Downloads') : '.';
+  }
+}
+
+// Strip characters that are invalid in Windows file names (Chromium usually
+// sanitizes these already, but be defensive since we build paths ourselves).
+function safeFilename(name) {
+  const s = typeof name === 'string' ? name : '';
+  const cleaned = s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim();
+  return cleaned || 'download';
+}
+
+// Chrome-style collision handling: if "report.pdf" already exists, save as
+// "report (1).pdf", "report (2).pdf", etc., so parallel/repeated downloads
+// never overwrite a file and never fail because the path is taken.
+function resolveUniqueSavePath(dir, filename) {
+  const candidate = path.join(dir, filename);
+  if (!fs.existsSync(candidate)) return candidate;
+  const parsed = path.parse(filename);
+  for (let i = 1; i < 1000; i++) {
+    const next = path.join(dir, `${parsed.name} (${i})${parsed.ext}`);
+    if (!fs.existsSync(next)) return next;
+  }
+  return path.join(dir, `${parsed.name} (${Date.now()})${parsed.ext}`);
+}
 
 // Maps Electron DownloadItem states to Kairon states.
 function normalizeState(item, updatedState) {
@@ -53,10 +99,13 @@ class DownloadManager {
   /**
    * @param {object} opts
    * @param {object} opts.store            - electron-store instance (same store as FeatureStore/session)
+   * @param {object} opts.featureStore     - FeatureStore instance; the download directory
+   *                                         preference is persisted through it
    * @param {Function} opts.onStateChange  - callback fired (throttled) whenever the list changes
    */
-  constructor({ store, onStateChange } = {}) {
+  constructor({ store, featureStore, onStateChange } = {}) {
     this._store = store;
+    this._featureStore = featureStore || null;
     this._onStateChange = typeof onStateChange === 'function' ? onStateChange : null;
 
     // id -> { record, item } — live DownloadItems currently being tracked.
@@ -124,9 +173,94 @@ class DownloadManager {
     } catch (e) { /* persistence is best-effort */ }
   }
 
+  // ── DOWNLOAD LOCATION ────────────────────────────────────
+
+  // Effective download directory: the user's custom folder when one is set,
+  // otherwise the system Downloads folder. Never null.
+  getDownloadDirectory() {
+    return this._getCustomDownloadDirectory() || getDefaultDownloadDirectory();
+  }
+
+  _getCustomDownloadDirectory() {
+    try {
+      const settings = this._featureStore ? this._featureStore.getFeatureSettings(DOWNLOAD_FEATURE_ID) : null;
+      const custom = settings && typeof settings[CUSTOM_PATH_SETTING] === 'string' ? settings[CUSTOM_PATH_SETTING].trim() : '';
+      return custom || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  getDownloadLocationInfo() {
+    const custom = this._getCustomDownloadDirectory();
+    return { path: custom || getDefaultDownloadDirectory(), isDefault: !custom };
+  }
+
+  // Persist a user-chosen directory. Creates the directory if it does not
+  // exist yet so the very first download into it cannot fail. Returns the
+  // new location info, or null if the path could not be created.
+  setDownloadDirectory(dir) {
+    if (typeof dir !== 'string' || !dir.trim()) return null;
+    let target;
+    try {
+      target = path.resolve(dir.trim());
+      fs.mkdirSync(target, { recursive: true });
+    } catch (e) {
+      return null;
+    }
+    if (this._featureStore) {
+      try {
+        this._featureStore.updateFeatureConfig(DOWNLOAD_FEATURE_ID, { [CUSTOM_PATH_SETTING]: target });
+      } catch (e) {
+        return null;
+      }
+    }
+    return { path: target, isDefault: false };
+  }
+
+  // Clear the custom location so future downloads go to the system Downloads
+  // folder again. Existing files are never moved.
+  resetDownloadDirectory() {
+    if (this._featureStore) {
+      try {
+        this._featureStore.updateFeatureConfig(DOWNLOAD_FEATURE_ID, { [CUSTOM_PATH_SETTING]: '' });
+      } catch (e) { /* best-effort */ }
+    }
+    return this.getDownloadLocationInfo();
+  }
+
   // ── DOWNLOAD OBSERVATION ─────────────────────────────────
 
   _onWillDownload = (event, item) => {
+    // Modern browser UX: never show a Save As dialog. Setting the save path
+    // makes Electron skip its prompt and save straight to the configured
+    // directory (creating it first if needed) while the download proceeds
+    // through the normal lifecycle (updated/done fire as usual, so the
+    // existing progress UI keeps working).
+    //
+    // CRITICAL: event.preventDefault() must NOT be called here — per
+    // Electron's docs, calling it CANCELS the download ("the download and
+    // item will not be available from next tick of the process"). Merely
+    // setting the save path is what suppresses the save dialog while letting
+    // the download run to completion.
+    try {
+      const dir = this.getDownloadDirectory();
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* best-effort; Electron also creates it */ }
+      const filename = safeFilename(item.getFilename());
+      const savePath = resolveUniqueSavePath(dir, filename);
+      try {
+        item.setSavePath(savePath);
+      } catch (e) {
+        // setSavePath can throw (e.g. unresolvable path). Fall back to the
+        // system Downloads folder so the download still completes.
+        try {
+          item.setSavePath(resolveUniqueSavePath(getDefaultDownloadDirectory(), filename));
+        } catch (e2) { /* leave the default pipeline to handle it */ }
+      }
+    } catch (e) {
+      // Without preventDefault, failing to set a path only means Electron
+      // uses its default routine — the download still proceeds.
+    }
     const id = this._nextId++;
     const startedAt = Date.now();
     const record = {
@@ -291,7 +425,8 @@ class DownloadManager {
 
   async openDownloadsFolder() {
     try {
-      const dir = app.getPath('downloads');
+      // Open the folder downloads are actually saved to (custom or default).
+      const dir = this.getDownloadDirectory();
       const err = await shell.openPath(dir);
       return !err;
     } catch (e) {

@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Incognito</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #000;
+            --primary: #f1f1f1;
+            --secondary: #c9c9c9;
+            --muted: #a6a6a6;
+            --rule: #292929;
+            --button-border: #888;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            min-height: 100%;
+            margin: 0;
+            background: var(--bg);
+        }
+
+        body {
+            display: grid;
+            place-items: center;
+            min-height: 100vh;
+            padding: 48px 24px;
+            color: var(--primary);
+            font-family: Arial, Helvetica, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+
+        .incognito-card {
+            width: min(100%, 528px);
+            text-align: center;
+        }
+
+        .incognito-mark {
+            width: 106px;
+            height: 94px;
+            margin: 0 auto 25px;
+            color: var(--primary);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(27px, 3vw, 31px);
+            line-height: 1.18;
+            font-weight: 600;
+            letter-spacing: -0.45px;
+        }
+
+        .intro {
+            max-width: 470px;
+            margin: 12px auto 21px;
+            color: var(--secondary);
+            font-size: 15px;
+            line-height: 1.6;
+            letter-spacing: 0.05px;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            border-top: 2px solid var(--rule);
+            border-bottom: 2px solid var(--rule);
+            padding: 27px 0 26px;
+        }
+
+        .feature {
+            display: flex;
+            min-width: 0;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding: 0 11px;
+        }
+
+        .feature+.feature {
+            border-left: 0 solid var(--rule);
+        }
+
+        .icon {
+            width: 27px;
+            height: 27px;
+            color: #dadada;
+            stroke-width: 1.45;
+        }
+
+        .feature-label {
+            color: #d2d2d2;
+            font-size: 13px;
+            line-height: 1.42;
+        }
+
+        .learn-more {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 151px;
+            height: 36px;
+            margin-top: 30px;
+            padding: 0 22px;
+            border: 1px solid var(--button-border);
+            border-radius: 0;
+            background: transparent;
+            color: #e1e1e1;
+            font: inherit;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+        }
+
+        .learn-more:hover {
+            background: #171717;
+            border-color: #b6b6b6;
+        }
+
+        .learn-more:active {
+            transform: scale(0.97);
+        }
+
+        .learn-more:focus-visible {
+            outline: 2px solid #fff;
+            outline-offset: 3px;
+        }
+
+        /* ── LIGHT THEME ─────────────────────────────────────
+           Same design, monochrome light palette. Set by the theme script
+           below (first paint via ?theme=, then the live snapshot). */
+        body[data-theme='light'] {
+            color-scheme: light;
+            --bg: #f4f4f4;
+            --primary: #171717;
+            --secondary: #4c4c4c;
+            --muted: #666;
+            --rule: #dfdfdf;
+            --button-border: #8c8c8c;
+        }
+
+        body[data-theme='light'] .icon {
+            color: #5f5f5f;
+        }
+
+        body[data-theme='light'] .feature-label {
+            color: #3c3c3c;
+        }
+
+        body[data-theme='light'] .learn-more {
+            color: #3a3a3a;
+        }
+
+        body[data-theme='light'] .learn-more:hover {
+            background: #e8e8e8;
+            border-color: #6f6f6f;
+        }
+
+        body[data-theme='light'] .learn-more:focus-visible {
+            outline-color: #000;
+        }
+
+        /* Smooth flip while the theme is switching (same pattern as the other
+           Kairon internal pages; the class is dropped ~300ms after a flip). */
+        .theme-switching,
+        .theme-switching *,
+        .theme-switching *::before,
+        .theme-switching *::after {
+            transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease, outline-color 220ms ease !important;
+        }
+
+        @media (max-width: 560px) {
+            body {
+                padding: 32px 18px;
+            }
+
+            .incognito-mark {
+                margin-bottom: 22px;
+                transform: scale(.9);
+            }
+
+            .intro {
+                font-size: 14px;
+                line-height: 1.55;
+            }
+
+            .features {
+                padding: 23px 0 22px;
+            }
+
+            .feature {
+                padding: 0 5px;
+                gap: 9px;
+            }
+
+            .feature-label {
+                font-size: 11px;
+            }
+        }
+
+        @media (max-width: 390px) {
+            .features {
+                grid-template-columns: repeat(2, 1fr);
+                row-gap: 23px;
+            }
+
+            .feature:nth-child(3),
+            .feature:nth-child(4) {
+                padding-top: 1px;
+            }
+
+            .feature-label {
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="incognito-card" aria-labelledby="page-title">
+        <svg class="incognito-mark" viewBox="0 0 106 94" aria-hidden="true">
+            <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M27 39 34.4 14.2c.9-3.2 3.8-5.2 7.1-5.2h23c3.3 0 6.2 2 7.1 5.2L79 39" stroke-width="3.1" />
+                <path d="M10 45h86" stroke-width="3.1" />
+                <circle cx="35" cy="70" r="14" stroke-width="2.7" />
+                <circle cx="71" cy="70" r="14" stroke-width="2.7" />
+                <path d="M49 70h8" stroke-width="2.7" />
+            </g>
+        </svg>
+
+        <h1 id="page-title">You’re in Incognito</h1>
+        <p class="intro">Pages you view in Incognito won’t save to your browsing history,<br class="desktop-break" />
+            site data, or cookies on this device after you close all<br class="desktop-break" /> Incognito windows.</p>
+
+        <section class="features" aria-label="Incognito protections">
+            <div class="feature">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                        d="M3 3l18 18M10.7 5.3A8.6 8.6 0 0 1 21 12a8.9 8.9 0 0 1-2 5.5M6.2 6.2A8.8 8.8 0 0 0 3 12c1.4 3.9 4.4 6.1 8.9 6.1 1.1 0 2.1-.2 3-.5M9.7 9.7a3 3 0 0 0 4.6 4.6"
+                        stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <div class="feature-label">No browsing<br />history</div>
+            </div>
+
+            <div class="feature">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                        d="M8.1 5.5c-.6-.9-.2-2.2.8-2.7.8-.4 1.8-.2 2.3.4l1.4 1.6c.8-.2 1.6-.2 2.4 0l.7-1c.6-.9 1.8-1.1 2.7-.5.8.6 1 1.7.5 2.6l-.6 1.1A8 8 0 1 1 8.1 5.5Z"
+                        stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+                    <circle cx="9" cy="12" r=".8" fill="currentColor" stroke="none" />
+                    <circle cx="15.5" cy="10.5" r=".8" fill="currentColor" stroke="none" />
+                </svg>
+                <div class="feature-label">No cookies<br />or site data</div>
+            </div>
+
+            <div class="feature">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M12 3v13M7.5 11.5 12 16l4.5-4.5M5 20h14" stroke="currentColor" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                </svg>
+                <div class="feature-label">No form data<br />saved</div>
+            </div>
+
+            <div class="feature">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M12 3 20 5.5v5.8c0 4.4-3.1 7.8-8 9.7-4.9-1.9-8-5.3-8-9.7V5.5L12 3Z" stroke="currentColor"
+                        stroke-linejoin="round" />
+                </svg>
+                <div class="feature-label">Enhanced<br />privacy</div>
+            </div>
+        </section>
+
+        <button class="learn-more" type="button">Learn more</button>
+    </main>
+
+    <script>
+        // ── GLOBAL THEME ─────────────────────────────────────
+        // The persisted Theme Mode (FeatureStore) is the single source of
+        // truth. Main passes ?theme= so the page paints correctly on first
+        // load; the authoritative value is re-applied from the live snapshot
+        // and follows every settings change.
+        (function () {
+            function applyTheme(mode) {
+                var theme = mode === 'light' ? 'light' : 'dark';
+                if (document.body.dataset.theme === theme) return;
+                document.body.classList.add('theme-switching');
+                void document.body.offsetHeight;
+                document.body.dataset.theme = theme;
+                setTimeout(function () { document.body.classList.remove('theme-switching'); }, 300);
+            }
+            try {
+                applyTheme(new URLSearchParams(location.search).get('theme'));
+            } catch (e) { }
+            try {
+                window.kairon.getSettingsState().then(function (snapshot) {
+                    var mode = snapshot && snapshot.state && snapshot.state.themeSystem && snapshot.state.themeSystem.settings && snapshot.state.themeSystem.settings.mode;
+                    if (mode) applyTheme(mode);
+                }).catch(function () { });
+                window.kairon.onSettingsUpdated(function (snapshot) {
+                    var mode = snapshot && snapshot.state && snapshot.state.themeSystem && snapshot.state.themeSystem.settings && snapshot.state.themeSystem.settings.mode;
+                    if (mode) applyTheme(mode);
+                });
+            } catch (e) { }
+        })();
+    </script>
+</body>
+
+</html>

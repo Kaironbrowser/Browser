@@ -19,6 +19,7 @@
     { id: 'appearance', label: 'Appearance', description: 'Customize how Kairon looks and how tabs are arranged.' },
     { id: 'privacy',    label: 'Privacy',    description: 'Protections that limit tracking and data exposure.' },
     { id: 'security',   label: 'Security',   description: 'Controls that keep unsafe sites and content away.' },
+    { id: 'downloads',  label: 'Downloads',  description: 'Choose where downloaded files are saved.' },
     { id: 'advanced',   label: 'Advanced',   description: 'Data utilities and power-user actions.' },
   ];
 
@@ -80,6 +81,13 @@
       rows: [],
       keywords: ['block', 'sites', 'blocked sites', 'blocklist', 'website', 'blocked', 'pattern'],
     },
+    downloadLocation: {
+      id: 'downloadLocation',
+      name: 'Downloads',
+      category: 'downloads',
+      rows: [],
+      keywords: ['download', 'downloads', 'download location', 'downloads folder', 'save to', 'directory', 'save path', 'default downloads folder', 'reset to default', 'open download folder'],
+    },
   };
 
   // ── DOM REFS ───────────────────────────────────────────────
@@ -107,6 +115,7 @@
   let lastMatches = [];
   let modal = null;
   let toastTimer = null;
+  let downloadLocation = { path: '', isDefault: true };
 
   // ── HELPERS ─────────────────────────────────────────────────
   function runtime(featureId) {
@@ -213,7 +222,39 @@
     for (const row of document.querySelectorAll('[data-dns-row]')) {
       row.classList.toggle('is-dimmed', !dnsOn);
     }
+    applyDownloadLocation();
     applyTheme();
+  }
+
+  // Downloads location row: path + Default/Custom indicator.
+  function applyDownloadLocation() {
+    const pathInput = document.getElementById('downloads-location-path');
+    const note = document.getElementById('downloads-location-note');
+    const badge = document.getElementById('downloads-location-badge');
+    if (pathInput) {
+      pathInput.value = downloadLocation.path || '';
+      pathInput.title = downloadLocation.path || '';
+    }
+    if (badge) {
+      badge.textContent = downloadLocation.isDefault ? 'Default' : 'Custom';
+      badge.classList.toggle('is-custom', !downloadLocation.isDefault);
+    }
+    if (note) {
+      note.textContent = downloadLocation.isDefault
+        ? 'Default location \u2014 your system Downloads folder.'
+        : 'Custom location \u2014 downloads save here automatically.';
+    }
+  }
+
+  function refreshDownloadLocation() {
+    kairon.getDownloadsLocation()
+      .then((loc) => {
+        if (loc && typeof loc.path === 'string') {
+          downloadLocation = loc;
+          applyDownloadLocation();
+        }
+      })
+      .catch(() => {});
   }
 
   // ── SEARCH ──────────────────────────────────────────────────
@@ -240,6 +281,10 @@
         });
       }
     }
+    // Downloads actions
+    entries.push({ featureId: 'downloadLocation', rowKey: 'openFolder', category: 'downloads', featureName: 'Downloads', rowLabel: 'Open download folder', text: 'open download folder show in explorer find saved files'.toLowerCase() });
+    entries.push({ featureId: 'downloadLocation', rowKey: 'resetLocation', category: 'downloads', featureName: 'Downloads', rowLabel: 'Reset to default', text: 'reset download location default system downloads folder'.toLowerCase() });
+
     // Advanced utilities
     entries.push({ featureId: '__advanced', rowKey: 'export', category: 'advanced', featureName: 'Advanced', rowLabel: 'Export settings', text: 'export settings save json backup file'.toLowerCase() });
     entries.push({ featureId: '__advanced', rowKey: 'import', category: 'advanced', featureName: 'Advanced', rowLabel: 'Import settings', text: 'import settings load json restore file'.toLowerCase() });
@@ -262,6 +307,18 @@
       return by('[data-feature="dnsOverHttps"][data-setting="' + rowKey + '"]');
     }
     if (featureId === 'siteBlocker') return by('[data-action="site-blocker"]');
+    if (featureId === 'downloadLocation') {
+      if (rowKey === 'openFolder') {
+        const btn = document.getElementById('downloads-open-folder');
+        return btn ? btn.closest('.row') : null;
+      }
+      if (rowKey === 'resetLocation') {
+        const btn = document.getElementById('downloads-reset');
+        return btn ? btn.closest('.row') : null;
+      }
+      const el = document.getElementById('downloads-location-path');
+      return el ? el.closest('.row') : null;
+    }
     if (featureId === '__advanced') return document.querySelector('.action[data-action="' + rowKey + '"]');
     return null;
   }
@@ -437,7 +494,7 @@
         if (!raw) { showToast('Paste settings JSON first'); return true; }
         try { JSON.parse(raw); } catch (err) { showToast('Invalid JSON \u2014 check your input'); return true; }
         kairon.importSettings(raw)
-          .then(() => showToast('Settings imported'))
+          .then(() => { showToast('Settings imported'); refreshDownloadLocation(); })
           .catch(() => showToast('Import failed'));
         return false;
       },
@@ -452,7 +509,7 @@
       danger: true,
       onConfirm: () => {
         kairon.resetAllSettings()
-          .then(() => showToast('All settings reset'))
+          .then(() => { showToast('All settings reset'); refreshDownloadLocation(); })
           .catch(() => showToast('Reset failed'));
         return false;
       },
@@ -602,6 +659,54 @@
       sbRow.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSiteBlocker(); } });
     }
 
+    // Downloads location — Change opens the native folder picker (only on
+    // explicit user action); Open folder / Reset affect the stored location.
+    const changeBtn = document.getElementById('downloads-change');
+    if (changeBtn) {
+      const onChange = async () => {
+        try {
+          const info = await kairon.chooseDownloadsLocation();
+          if (info && typeof info.path === 'string') {
+            downloadLocation = info;
+            applyDownloadLocation();
+            showToast('Future downloads will be saved to the new folder');
+          }
+        } catch (err) {
+          kairon.logError('settings-page-downloads-change', String(err && (err.stack || err.message) || err)).catch(() => {});
+        }
+      };
+      changeBtn.addEventListener('click', onChange);
+      changeBtn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onChange(); } });
+    }
+
+    const openFolderBtn = document.getElementById('downloads-open-folder');
+    if (openFolderBtn) {
+      const onOpen = () => {
+        kairon.openDownloadsFolder().catch((err) =>
+          kairon.logError('settings-page-downloads-open', String(err && (err.stack || err.message) || err)).catch(() => {}));
+      };
+      openFolderBtn.addEventListener('click', onOpen);
+      openFolderBtn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } });
+    }
+
+    const resetBtn = document.getElementById('downloads-reset');
+    if (resetBtn) {
+      const onReset = async () => {
+        try {
+          const info = await kairon.resetDownloadsLocation();
+          if (info && typeof info.path === 'string') {
+            downloadLocation = info;
+            applyDownloadLocation();
+            showToast('Downloads will be saved to your default folder');
+          }
+        } catch (err) {
+          kairon.logError('settings-page-downloads-reset', String(err && (err.stack || err.message) || err)).catch(() => {});
+        }
+      };
+      resetBtn.addEventListener('click', onReset);
+      resetBtn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onReset(); } });
+    }
+
     // Advanced actions
     const actionHandlers = { export: openExport, import: openImport, reset: openReset };
     for (const action of document.querySelectorAll('.action[data-action]')) {
@@ -664,6 +769,12 @@
       snapshot = { registry: [], state: {} };
     }
 
+    // Current downloads location (path + whether it is the system default).
+    try {
+      const loc = await kairon.getDownloadsLocation();
+      if (loc && typeof loc.path === 'string') downloadLocation = loc;
+    } catch (err) { /* non-fatal; keep defaults */ }
+
     // Deep link: kairon://settings/<section> arrives as a query param set by
     // the main process via loadFile. Unknown sections fall back to the first
     // category — never a crash.
@@ -677,6 +788,9 @@
     kairon.onSettingsUpdated((incoming) => {
       snapshot = incoming || snapshot;
       searchIndex = null;
+      // The download location can change through other surfaces (e.g. Reset
+      // all settings), so re-read it alongside the settings snapshot.
+      refreshDownloadLocation();
       if (searchQuery.trim()) renderSearch();
       else renderCategory();
     });
