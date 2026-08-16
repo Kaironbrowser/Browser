@@ -123,14 +123,15 @@
     const mode = runtime('themeSystem').settings.mode;
     const theme = mode === 'light' ? 'light' : 'dark';
     if (document.body.dataset.theme === theme) return;
-    // Re-skin instantly instead of relying on CSS transitions: Chromium freezes
-    // transitions on transitioning elements while the window is hidden/occluded,
-    // which would leave stale colors on segments/nav/search after the flip. With
-    // transitions disabled for one frame the whole page snaps to the new theme,
-    // then normal hover transitions are re-enabled.
+    // Animate the flip: while the theme-switching class is present every
+    // element transitions its theme-dependent properties (220ms, see
+    // settings.html). The class is dropped after ~300ms, which also snaps any
+    // transition Chromium froze in a hidden/occluded window to the new theme
+    // values, so stale colors are impossible.
     document.body.classList.add('theme-switching');
+    void document.body.offsetHeight; // recalc so the transition rule is active before values change
     document.body.dataset.theme = theme;
-    setTimeout(() => document.body.classList.remove('theme-switching'), 60);
+    setTimeout(() => document.body.classList.remove('theme-switching'), 300);
   }
 
   // ── CATEGORY VIEW ───────────────────────────────────────────

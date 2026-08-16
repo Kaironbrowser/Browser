@@ -120,6 +120,8 @@ export function createUiController(kairon, store, onLayoutChange) {
   const btnZoomIn       = document.getElementById('btn-zoom-in');
   const btnZoomReset    = document.getElementById('btn-zoom-reset');
   const zoomValue       = document.getElementById('zoom-value');
+  const btnDownloads    = document.getElementById('btn-downloads');
+  const downloadsBadge  = document.getElementById('downloads-badge');
 
   // ── TAB POSITION SETUP ─────────────────────────────────────
   let tabPosition = localStorage.getItem('kairon:tab-position') || 'top';
@@ -128,6 +130,13 @@ export function createUiController(kairon, store, onLayoutChange) {
   function setTabPosition(newPosition, fromIpc = false) {
     if (tabPosition === newPosition) return;
     tabPosition = newPosition;
+    // The layout-animating class puts the rail on the same 260ms layout
+    // timeline as the top tab bar while the shell morphs; it is dropped once
+    // the transition settles so the collapse button keeps its own timing.
+    document.body.classList.add('layout-animating');
+    // Force a style recalc so the layout-animating transition list is the
+    // before-change style when the tab-position flip triggers the morph.
+    void document.body.offsetHeight;
     document.body.dataset.tabPosition = tabPosition;
     try { localStorage.setItem('kairon:tab-position', tabPosition); } catch {}
     
@@ -136,12 +145,31 @@ export function createUiController(kairon, store, onLayoutChange) {
     }
     
     _renderTabs();
-    // Fire layout changes multiple times to catch CSS transitions
-    if (onLayoutChange) {
-      onLayoutChange();
-      setTimeout(onLayoutChange, 50);
-      setTimeout(onLayoutChange, 350);
-    }
+    _animateTabPositionLayout();
+
+    // The toolbar geometry changed — keep the downloads panel anchored once
+    // mid-morph and once after the shell settles.
+    setTimeout(_reanchorDownloadsPanel, 60);
+    setTimeout(_reanchorDownloadsPanel, 380);
+    setTimeout(() => document.body.classList.remove('layout-animating'), 360);
+  }
+
+  // While the CSS layout morph runs (260ms), stream layout metrics every frame
+  // so main repositions the BrowserView in lockstep with the chrome — the
+  // webpage slides/resizes with the shell instead of jumping to the final
+  // bounds. Under prefers-reduced-motion the layout snaps instantly, so a
+  // single publish is enough.
+  function _animateTabPositionLayout() {
+    const publish = () => { if (onLayoutChange) onLayoutChange(); };
+    if (_reducedMotion) { publish(); return; }
+    const start = performance.now();
+    const DURATION = 340; // cover the longest layout transition + a settle frame
+    const step = (now) => {
+      publish();
+      if (now - start < DURATION) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    setTimeout(publish, 360);
   }
 
   // ── STATE ──────────────────────────────────────────────────
@@ -183,6 +211,58 @@ export function createUiController(kairon, store, onLayoutChange) {
   function _setRailCollapsed(collapsed) {
     leftRail.dataset.collapsed = collapsed ? 'true' : 'false';
     try { localStorage.setItem('kairon:rail-collapsed', String(collapsed)); } catch {}
+  }
+
+  // ── DOWNLOADS PANEL ────────────────────────────────────────
+  // The floating panel is rendered by the existing overlay window (the same
+  // infrastructure as the omnibox suggestions) so it always paints above
+  // BrowserView content. This controller only anchors it (button rect),
+  // tracks open state, and keeps the toolbar badge in sync via the live
+  // downloads feed pushed by main.
+  let downloadsPanelOpen = false;
+  let _downloadsActiveCount = 0;
+
+  function _getDownloadsButtonRect() {
+    const r = btnDownloads.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height };
+  }
+
+  // Re-anchor after the toolbar layout changes (window resize, tab-position
+  // switch, rail collapse) so the panel stays glued to the button.
+  function _reanchorDownloadsPanel() {
+    if (!downloadsPanelOpen) return;
+    kairon.showDownloadsPanel({ rect: _getDownloadsButtonRect() });
+  }
+
+  function _openDownloadsPanel() {
+    downloadsPanelOpen = true;
+    btnDownloads.classList.add('active');
+    btnDownloads.setAttribute('aria-expanded', 'true');
+    kairon.showDownloadsPanel({ rect: _getDownloadsButtonRect() });
+  }
+
+  function _closeDownloadsPanel() {
+    if (!downloadsPanelOpen) return;
+    downloadsPanelOpen = false;
+    btnDownloads.classList.remove('active');
+    btnDownloads.removeAttribute('aria-expanded');
+    kairon.hideDownloadsPanel();
+  }
+
+  function _toggleDownloadsPanel() {
+    if (downloadsPanelOpen) _closeDownloadsPanel();
+    else _openDownloadsPanel();
+  }
+
+  function _updateDownloadsBadge(list) {
+    _downloadsActiveCount = 0;
+    if (Array.isArray(list)) {
+      for (const d of list) {
+        if (d && (d.state === 'downloading' || d.state === 'paused')) _downloadsActiveCount += 1;
+      }
+    }
+    downloadsBadge.textContent = String(_downloadsActiveCount);
+    downloadsBadge.classList.toggle('hidden', _downloadsActiveCount === 0);
   }
 
   // ── STATUS BAR ─────────────────────────────────────────────
@@ -1161,6 +1241,7 @@ export function createUiController(kairon, store, onLayoutChange) {
 
     btnCollapseRail.addEventListener('click', () => {
       _setRailCollapsed(leftRail.dataset.collapsed !== 'true');
+      setTimeout(_reanchorDownloadsPanel, 60);
     });
 
     const btnHistory = document.getElementById('btn-open-history');
@@ -1196,6 +1277,7 @@ export function createUiController(kairon, store, onLayoutChange) {
     });
 
     addressBar.addEventListener('focus', () => {
+      _closeDownloadsPanel();
       requestAnimationFrame(() => addressBar.select());
       _showSuggestions(addressBar.value);
     });
@@ -1300,7 +1382,46 @@ export function createUiController(kairon, store, onLayoutChange) {
       }
     });
 
+    // ── DOWNLOADS BUTTON / PANEL ────────────────────────────
+    btnDownloads?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _toggleDownloadsPanel();
+    });
+
+    // Any click outside the Downloads button closes the panel. Clicks on the
+    // panel itself land in the overlay window, and clicks on a webpage blur
+    // the overlay (main closes it there) — this covers the chrome area.
+    document.addEventListener('click', (e) => {
+      if (!downloadsPanelOpen) return;
+      if (btnDownloads && e.target && btnDownloads.contains(e.target)) return;
+      _closeDownloadsPanel();
+    });
+
+    window.addEventListener('resize', _reanchorDownloadsPanel);
+
+    kairon.onDownloadsUpdated((list) => {
+      _updateDownloadsBadge(list);
+    });
+
+    // The panel can also be closed from the overlay side (Escape, webpage
+    // click via overlay blur). Keep this controller's open state in sync so
+    // the toolbar button toggles correctly afterwards.
+    kairon.onDownloadsPanelShow(() => {
+      downloadsPanelOpen = true;
+      btnDownloads.classList.add('active');
+      btnDownloads.setAttribute('aria-expanded', 'true');
+    });
+    kairon.onDownloadsPanelHide(() => {
+      downloadsPanelOpen = false;
+      btnDownloads.classList.remove('active');
+      btnDownloads.removeAttribute('aria-expanded');
+    });
+
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && downloadsPanelOpen) {
+        _closeDownloadsPanel();
+        return;
+      }
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd')) { e.preventDefault(); kairon.zoomIn(); return; }
       if (mod && (e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract')) { e.preventDefault(); kairon.zoomOut(); return; }

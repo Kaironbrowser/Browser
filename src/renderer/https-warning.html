@@ -3,6 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Insecure Connection Blocked</title>
   <style>
@@ -46,9 +47,14 @@
       --btn-secondary-hover-bg: rgba(0, 0, 0, 0.05);
     }
 
-    /* Theme flip: suspend transitions for one frame so the page re-skins
-       instantly (Chromium freezes transitions in hidden/occluded windows). */
-    :root.theme-switching, :root.theme-switching * { transition: none !important; animation: none !important; }
+    /* Theme flip: animate theme-dependent properties so Light↔Dark switches
+       feel smooth. The flip class drops ~300ms after the switch, which also
+       snaps any transition Chromium froze in a hidden/occluded window to the
+       new theme values (no stale colors). */
+    :root.theme-switching, :root.theme-switching *, :root.theme-switching *::before, :root.theme-switching *::after {
+      transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease, outline-color 220ms ease, box-shadow 220ms ease, fill 220ms ease, stroke 220ms ease !important;
+      animation: none !important;
+    }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition: none !important; }
     }
@@ -282,8 +288,9 @@
         var root = document.documentElement;
         if (root.dataset.theme === theme) return;
         root.classList.add('theme-switching');
+        void root.offsetHeight; // recalc so the transition rule is active before values change
         root.dataset.theme = theme;
-        setTimeout(function () { root.classList.remove('theme-switching'); }, 60);
+        setTimeout(function () { root.classList.remove('theme-switching'); }, 300);
       }
       try {
         window.kairon.onSettingsUpdated(function (snapshot) {

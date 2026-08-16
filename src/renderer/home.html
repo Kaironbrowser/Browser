@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'none';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Kairon — Home</title>
   <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
@@ -139,10 +140,25 @@
       --kbd-bg: #f5f5f5;
     }
 
-    /* Theme flip: suspend transitions/animations for one frame so every
-       surface re-skins instantly (Chromium freezes transitions in hidden or
-       occluded windows, which would otherwise leave stale colors). */
-    :root.theme-switching, :root.theme-switching * { transition: none !important; animation: none !important; }
+    /* Theme flip: animate theme-dependent properties so Light↔Dark switches
+       feel smooth instead of snapping. The flip class drops ~300ms after the
+       switch, which also snaps any transition Chromium froze in a hidden or
+       occluded window to the new theme values (no stale colors). */
+    :root.theme-switching, :root.theme-switching *, :root.theme-switching *::before, :root.theme-switching *::after {
+      transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease, outline-color 220ms ease, box-shadow 220ms ease, fill 220ms ease, stroke 220ms ease !important;
+      animation: none !important;
+    }
+
+    /* Internal-page navigation entrance (?transition=1 set by main when this
+       page replaces another Kairon internal page): fades in with a slight
+       rise. The hidden state applies before first paint; a double-rAF releases
+       it. First loads render instantly — no class, no animation. Element-level
+       entrance animations are suppressed during the entrance so nothing plays
+       twice. */
+    html { transition: opacity 150ms ease-out, transform 150ms ease-out; }
+    html.page-enter { opacity: 0.45; transform: translateY(5px); }
+    html.page-enter * { animation: none !important; }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition: none !important; }
     }
@@ -453,6 +469,32 @@
     document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
   } catch (e) {}
 </script>
+<script>
+  // Internal-page navigation entrance: main adds ?transition=1 when this page
+  // replaces another Kairon internal page. The hidden state is applied before
+  // first paint (no flash), then a double-rAF releases the fade/rise so the
+  // transition starts from the painted frame. First loads have no
+  // ?transition= and render instantly.
+  (function () {
+    try {
+      if (new URLSearchParams(location.search).get('transition') !== '1') return;
+      var root = document.documentElement;
+      var released = false;
+      function release() {
+        if (released) return;
+        released = true;
+        root.classList.remove('page-enter');
+      }
+      root.classList.add('page-enter');
+      requestAnimationFrame(function () {
+        requestAnimationFrame(release);
+      });
+      // Safety net: if rAF is throttled (e.g. the window is occluded right
+      // after navigation) never leave the page stuck at the 45% start state.
+      setTimeout(release, 350);
+    } catch (e) {}
+  })();
+</script>
 
   <div class="page-content">
 
@@ -634,8 +676,9 @@
         var root = document.documentElement;
         if (root.dataset.theme === theme) return;
         root.classList.add('theme-switching');
+        void root.offsetHeight; // recalc so the transition rule is active before values change
         root.dataset.theme = theme;
-        setTimeout(function () { root.classList.remove('theme-switching'); }, 60);
+        setTimeout(function () { root.classList.remove('theme-switching'); }, 300);
       }
       try {
         window.kairon.onSettingsUpdated(function (snapshot) {

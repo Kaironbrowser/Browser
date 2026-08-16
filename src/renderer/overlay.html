@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'none';" />
   <title>Orion Overlay</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
@@ -35,9 +36,64 @@
       --sugg-icon-opacity: 0.6;
     }
 
+    /* ── DOWNLOADS PANEL ────────────────────────────────────────
+       Monochrome floating panel anchored to the toolbar Downloads button.
+       Dark: near-black charcoal with a subtle purple-gray tint, thin
+       low-contrast border, muted secondary text, subtle row separators and
+       monochrome buttons — no gradients, minimal shadow. Light: the same
+       panel re-skins through the shared Kairon light vocabulary (off-white
+       surface, dark ink, gray borders) via the data-theme switch. */
+    :root {
+      --dl-bg:          #15151c;
+      --dl-bg-hover:    rgba(255, 255, 255, 0.055);
+      --dl-bg-active:   rgba(255, 255, 255, 0.09);
+      --dl-border:      rgba(255, 255, 255, 0.09);
+      --dl-divider:     rgba(255, 255, 255, 0.07);
+      --dl-text:        #eef0f8;
+      --dl-text-2:      #8b93b5;
+      --dl-text-3:      #5d6480;
+      --dl-icon-bg:     rgba(255, 255, 255, 0.05);
+      --dl-icon-border: rgba(255, 255, 255, 0.08);
+      --dl-btn-bg:      rgba(255, 255, 255, 0.045);
+      --dl-btn-border:  rgba(255, 255, 255, 0.10);
+      --dl-btn-hover:   rgba(255, 255, 255, 0.09);
+      --dl-progress:    rgba(255, 255, 255, 0.16);
+      --dl-progress-fill: #ffffff;
+      --dl-success:     #34d39b;
+      --dl-danger:      #f26b6b;
+    }
+
+    :root[data-theme='light'] {
+      --dl-bg:          #fbfbfb;
+      --dl-bg-hover:    rgba(0, 0, 0, 0.05);
+      --dl-bg-active:   rgba(0, 0, 0, 0.08);
+      --dl-border:      rgba(0, 0, 0, 0.12);
+      --dl-divider:     rgba(0, 0, 0, 0.07);
+      --dl-text:        #1a1a1a;
+      --dl-text-2:      #5f5f5f;
+      --dl-text-3:      #8a8a8a;
+      --dl-icon-bg:     rgba(0, 0, 0, 0.04);
+      --dl-icon-border: rgba(0, 0, 0, 0.08);
+      --dl-btn-bg:      rgba(0, 0, 0, 0.04);
+      --dl-btn-border:  rgba(0, 0, 0, 0.12);
+      --dl-btn-hover:   rgba(0, 0, 0, 0.08);
+      --dl-progress:    rgba(0, 0, 0, 0.12);
+      --dl-progress-fill: #1a1a1a;
+      --dl-success:     #2fae7e;
+      --dl-danger:      #d64545;
+    }
+
     /* Theme flip: suspend transitions for one frame so the dropdown re-skins
        instantly (same as the chrome and internal pages). */
-    :root.theme-switching, :root.theme-switching * { transition: none !important; animation: none !important; }
+    /* Theme flip: animate theme-dependent properties so Light↔Dark switches
+       feel smooth (downloads panel + suggestions re-skin with the rest of the
+       chrome). The flip class drops ~300ms after the switch, which also snaps
+       any transition Chromium froze in a hidden/occluded window to the new
+       theme values (no stale colors). */
+    :root.theme-switching, :root.theme-switching *, :root.theme-switching *::before, :root.theme-switching *::after {
+      transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease, outline-color 220ms ease, box-shadow 220ms ease, fill 220ms ease, stroke 220ms ease !important;
+      animation: none !important;
+    }
 
     html, body {
       margin: 0;
@@ -108,6 +164,213 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    /* ── DOWNLOADS PANEL LAYOUT ────────────────────────────── */
+    #downloads-panel {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--dl-bg);
+      border: 1px solid var(--dl-border);
+      border-radius: 10px;
+      overflow: hidden;
+      pointer-events: auto;
+      color: var(--dl-text);
+      font-size: 13px;
+      line-height: 1.4;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+    #downloads-panel[hidden] { display: none; }
+
+    #downloads-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 46px;
+      padding: 0 14px 0 16px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--dl-divider);
+    }
+    #downloads-panel-title {
+      font-size: 13.5px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    #downloads-menu-wrap { position: relative; }
+
+    .dl-icon-btn {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--dl-text-2);
+      cursor: pointer;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+    }
+    .dl-icon-btn:hover { background: var(--dl-btn-hover); color: var(--dl-text); }
+    .dl-icon-btn:focus-visible { outline: none; border-color: var(--dl-border); box-shadow: 0 0 0 2px rgba(255,255,255,0.18); }
+    :root[data-theme='light'] .dl-icon-btn:focus-visible { box-shadow: 0 0 0 2px rgba(0,0,0,0.18); }
+    .dl-icon-btn svg { display: block; }
+
+    #downloads-menu {
+      position: absolute;
+      top: 34px;
+      right: 0;
+      min-width: 200px;
+      padding: 6px;
+      background: var(--dl-bg);
+      border: 1px solid var(--dl-border);
+      border-radius: 10px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+      z-index: 5;
+    }
+    #downloads-menu[hidden] { display: none; }
+    #downloads-menu button {
+      display: block;
+      width: 100%;
+      padding: 8px 10px;
+      text-align: left;
+      border: none;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--dl-text);
+      font-family: inherit;
+      font-size: 12.5px;
+      cursor: pointer;
+    }
+    #downloads-menu button:hover { background: var(--dl-bg-hover); }
+    #downloads-menu button:focus-visible { outline: none; background: var(--dl-bg-hover); }
+
+    #downloads-panel-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 4px;
+    }
+    #downloads-panel-list::-webkit-scrollbar { width: 8px; }
+    #downloads-panel-list::-webkit-scrollbar-thumb { background: var(--dl-divider); border-radius: 9999px; }
+    #downloads-panel-list::-webkit-scrollbar-thumb:hover { background: var(--dl-progress); }
+
+    #downloads-empty {
+      height: 84px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--dl-text-3);
+      font-size: 12.5px;
+    }
+
+    .dl-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      cursor: default;
+      transition: background 120ms ease;
+      user-select: none;
+    }
+    .dl-row:hover, .dl-row:focus-visible { background: var(--dl-bg-hover); outline: none; }
+    .dl-row.openable { cursor: pointer; }
+
+    .dl-icon {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: var(--dl-icon-bg);
+      border: 1px solid var(--dl-icon-border);
+      color: var(--dl-text-2);
+    }
+    .dl-icon svg { display: block; }
+
+    .dl-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .dl-filename {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--dl-text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .dl-status {
+      font-size: 11px;
+      color: var(--dl-text-2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .dl-status.failed { color: var(--dl-danger); }
+
+    .dl-progress {
+      width: 100%;
+      height: 3px;
+      border-radius: 9999px;
+      background: var(--dl-progress);
+      overflow: hidden;
+      margin-top: 1px;
+    }
+    .dl-progress-fill {
+      height: 100%;
+      border-radius: 9999px;
+      background: var(--dl-progress-fill);
+      transition: width 200ms ease;
+    }
+
+    .dl-actions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+    .dl-actions .dl-icon-btn { width: 26px; height: 26px; border-radius: 6px; }
+
+    #downloads-panel-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 46px;
+      padding: 0 10px;
+      flex-shrink: 0;
+      border-top: 1px solid var(--dl-divider);
+    }
+    .dl-footer-btn {
+      height: 28px;
+      padding: 0 12px;
+      border: 1px solid var(--dl-btn-border);
+      border-radius: 7px;
+      background: var(--dl-btn-bg);
+      color: var(--dl-text);
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .dl-footer-btn:hover { background: var(--dl-btn-hover); border-color: var(--dl-border); }
+    .dl-footer-btn:focus-visible { outline: none; border-color: var(--dl-border); box-shadow: 0 0 0 2px rgba(255,255,255,0.18); }
+    :root[data-theme='light'] .dl-footer-btn:focus-visible { box-shadow: 0 0 0 2px rgba(0,0,0,0.18); }
+    .dl-footer-btn.dl-primary {
+      background: var(--dl-progress-fill);
+      border-color: var(--dl-progress-fill);
+      color: var(--dl-bg);
+      font-weight: 600;
+    }
+    .dl-footer-btn.dl-primary:hover { background: var(--dl-btn-hover); border-color: var(--dl-border); color: var(--dl-text); }
   </style>
   <script>
     // Apply the persisted theme before first paint: the main process passes the
@@ -121,6 +384,33 @@
 <body>
   <div id="overlay-root">
     <div id="address-suggestions" role="listbox"></div>
+
+    <!-- Downloads panel — anchored to the toolbar Downloads button. The main
+         process sizes the overlay to exactly this panel's rect, so it paints
+         above BrowserView content and only captures mouse events over itself. -->
+    <div id="downloads-panel" role="dialog" aria-label="Downloads" hidden>
+      <div id="downloads-panel-header">
+        <span id="downloads-panel-title">Downloads</span>
+        <div id="downloads-menu-wrap">
+          <button id="downloads-menu-btn" class="dl-icon-btn" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+              <circle cx="7.5" cy="3" r="1.1" fill="currentColor"/>
+              <circle cx="7.5" cy="7.5" r="1.1" fill="currentColor"/>
+              <circle cx="7.5" cy="12" r="1.1" fill="currentColor"/>
+            </svg>
+          </button>
+          <div id="downloads-menu" role="menu" aria-label="Download actions" hidden>
+            <button role="menuitem" data-action="open-folder">Open downloads folder</button>
+            <button role="menuitem" data-action="clear-completed">Clear completed downloads</button>
+          </div>
+        </div>
+      </div>
+      <div id="downloads-panel-list" role="list"></div>
+      <div id="downloads-panel-footer">
+        <button id="downloads-clear-btn" class="dl-footer-btn">Clear</button>
+        <button id="downloads-show-more-btn" class="dl-footer-btn dl-primary">Show more</button>
+      </div>
+    </div>
   </div>
   <script src="overlay.js"></script>
   <script>
@@ -134,8 +424,9 @@
         var root = document.documentElement;
         if (root.dataset.theme === theme) return;
         root.classList.add('theme-switching');
+        void root.offsetHeight; // recalc so the transition rule is active before values change
         root.dataset.theme = theme;
-        setTimeout(function () { root.classList.remove('theme-switching'); }, 60);
+        setTimeout(function () { root.classList.remove('theme-switching'); }, 300);
       }
       try {
         window.kairon.onSettingsUpdated(function (snapshot) {

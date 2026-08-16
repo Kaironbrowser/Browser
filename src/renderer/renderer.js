@@ -14,15 +14,17 @@ const { kairon } = window;
 // the whole browser. The main process passes it as ?theme= at load so the
 // chrome renders the right theme before first paint; the authoritative value
 // is re-applied from the settings snapshot on boot and on every live
-// settings-updated push. Transitions are suspended for one frame while
-// flipping so every chrome surface re-skins instantly (Chromium freezes
-// transitions in hidden/occluded windows, which would leave stale colors).
+// settings-updated push. While flipping, the theme-switching class enables
+// smooth 220ms transitions on every theme-dependent property (see style.css);
+// the class is dropped after ~300ms, which also snaps any transition Chromium
+// froze in a hidden/occluded window to the new theme values (no stale colors).
 function applyChromeTheme(mode) {
   const theme = mode === 'light' ? 'light' : 'dark';
   if (document.body.dataset.theme === theme) return;
   document.body.classList.add('theme-switching');
+  void document.body.offsetHeight; // recalc so the transition rule is active before values change
   document.body.dataset.theme = theme;
-  setTimeout(() => document.body.classList.remove('theme-switching'), 60);
+  setTimeout(() => document.body.classList.remove('theme-switching'), 300);
 }
 
 // Synchronous first-paint hint from the load query (rendered before paint).

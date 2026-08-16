@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none';">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>This site can’t be reached</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --page: #050505;
+            --border: #29292b;
+            --border-soft: #222224;
+            --muted: #96969a;
+            --text: #f2f2f3;
+            --check-text: #d2d2d4;
+            --check-icon: #b8b8bc;
+            --code-text: #a8a8ab;
+            --description-text: #a7a7aa;
+            --stroke: #e4e4e6;
+            --btn-primary-bg: #f0f0f1;
+            --btn-primary-text: #1c1c1e;
+            --btn-primary-border: #dedee0;
+            --btn-secondary-border: #38383b;
+            --btn-secondary-text: #e6e6e8;
+            --details-hover: #dedee0;
+            --details-border-hover: #303033;
+        }
+
+        /* ── LIGHT THEME ────────────────────────────────────────
+           Monochrome light palette matching the shared Kairon theme vocabulary
+           (settings/home/history/https-warning). Applied via data-theme on
+           <html> (set before first paint from the ?theme= query and live-synced
+           from the store). */
+        :root[data-theme='light'] {
+            color-scheme: light;
+            --page: #f0f0f0;
+            --border: #d0d0d0;
+            --border-soft: #dcdcdc;
+            --muted: #555555;
+            --text: #141414;
+            --check-text: #333333;
+            --check-icon: #444444;
+            --code-text: #555555;
+            --description-text: #555555;
+            --stroke: #1a1a1a;
+            --btn-primary-bg: #1a1a1a;
+            --btn-primary-text: #f5f5f5;
+            --btn-primary-border: #1a1a1a;
+            --btn-secondary-border: #b0b0b0;
+            --btn-secondary-text: #1a1a1a;
+            --details-hover: #141414;
+            --details-border-hover: #a0a0a0;
+        }
+
+        /* Theme flip: animate theme-dependent properties so Light↔Dark switches
+           feel smooth. The flip class drops ~300ms after the switch, which also
+           snaps any transition Chromium froze in a hidden/occluded window to the
+           new theme values (no stale colors). */
+        :root.theme-switching, :root.theme-switching *, :root.theme-switching *::before, :root.theme-switching *::after {
+            transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease, outline-color 220ms ease, box-shadow 220ms ease, fill 220ms ease, stroke 220ms ease !important;
+            animation: none !important;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation: none !important; transition: none !important; }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            overflow: auto;
+            background: var(--page);
+            color: var(--text);
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 14px;
+        }
+
+        .browser {
+            min-height: 100%;
+            display: flex;
+            flex-direction: column;
+            background: var(--page);
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            text-align: center;
+            padding-top: 39px;
+            background: var(--page);
+        }
+
+        .error-card {
+            width: min(492px, calc(100vw - 44px));
+            padding-bottom: 40px;
+        }
+
+        .error-illustration {
+            height: 120px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .error-illustration svg {
+            width: 150px;
+            height: 112px;
+            overflow: visible;
+        }
+
+        /* CSS overrides the SVG presentation attributes so the illustration
+           follows the active theme. */
+        .error-illustration svg g[stroke] { stroke: var(--stroke); }
+        .error-illustration svg g[fill] { fill: var(--stroke); }
+
+        h1 {
+            margin: 0 0 19px;
+            font-size: 29px;
+            line-height: 1.15;
+            font-weight: 700;
+            letter-spacing: -0.7px;
+        }
+
+        .description {
+            margin: 0 auto 28px;
+            color: var(--description-text);
+            font-size: 16px;
+            line-height: 1.55;
+            overflow-wrap: break-word;
+        }
+
+        .description strong {
+            font-weight: 600;
+        }
+
+        .checks {
+            width: min(460px, 100%);
+            margin: 0 auto 30px;
+            border: 1px solid var(--border);
+            text-align: left;
+        }
+
+        .check {
+            min-height: 47px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 0 14px;
+            color: var(--check-text);
+            font-size: 13px;
+            border-bottom: 1px solid var(--border-soft);
+        }
+
+        .check:last-child {
+            border-bottom: 0;
+        }
+
+        .error-code {
+            color: var(--code-text);
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+            font-size: 12px;
+            letter-spacing: .15px;
+            overflow-wrap: break-word;
+        }
+
+        .check-icon {
+            width: 17px;
+            flex: 0 0 17px;
+            color: var(--check-icon);
+            font-size: 18px;
+            text-align: center;
+        }
+
+        .wifi {
+            font-size: 21px;
+            transform: rotate(180deg);
+        }
+
+        .shield {
+            font-size: 17px;
+        }
+
+        .server {
+            display: inline-flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .server i {
+            width: 15px;
+            height: 3px;
+            border: 1px solid var(--check-icon);
+            border-radius: 1px;
+            display: block;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 13px;
+        }
+
+        button {
+            height: 45px;
+            flex: 1;
+            border-radius: 3px;
+            font: inherit;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .primary {
+            border: 1px solid var(--btn-primary-border);
+            background: var(--btn-primary-bg);
+            color: var(--btn-primary-text);
+        }
+
+        .secondary {
+            border: 1px solid var(--btn-secondary-border);
+            background: transparent;
+            color: var(--btn-secondary-text);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        .details {
+            display: inline-block;
+            margin-top: 27px;
+            padding: 3px 8px 4px;
+            border: 1px solid transparent;
+            color: var(--code-text);
+            font-size: 14px;
+            cursor: pointer;
+            transition: color .12s ease, border-color .12s ease;
+        }
+
+        .details::before {
+            content: '⌄';
+            display: inline-block;
+            margin-right: 8px;
+            color: var(--check-icon);
+            font-size: 20px;
+            vertical-align: -2px;
+            transition: transform .12s ease;
+        }
+
+        .details[aria-expanded="true"]::before {
+            transform: rotate(180deg);
+        }
+
+        .details:hover {
+            color: var(--details-hover);
+            border-color: var(--details-border-hover);
+        }
+
+        .details:focus-visible {
+            outline: 2px solid var(--details-border-hover);
+            outline-offset: 2px;
+        }
+
+        .tech-details {
+            width: min(460px, 100%);
+            margin: 12px auto 0;
+            border: 1px solid var(--border);
+            text-align: left;
+        }
+
+        .tech-row {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border-soft);
+        }
+
+        .tech-row:last-child {
+            border-bottom: 0;
+        }
+
+        .tech-label {
+            color: var(--muted);
+            font-size: 11px;
+            letter-spacing: .4px;
+            text-transform: uppercase;
+        }
+
+        .tech-value {
+            color: var(--check-text);
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+            font-size: 12px;
+            overflow-wrap: break-word;
+        }
+
+        [hidden] {
+            display: none !important;
+        }
+
+        @media (max-width: 700px) {
+            main {
+                padding-top: 28px;
+            }
+
+            h1 {
+                font-size: 25px;
+            }
+
+            .description {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <script>
+        // Apply the persisted theme before first paint: the main process passes the
+        // current FeatureStore value as ?theme= when loading this page. Live changes
+        // arrive via settings-updated (see the sync script at the end of the body).
+        try {
+            document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
+        } catch (e) {}
+    </script>
+    <div class="browser">
+        <main>
+            <section class="error-card" aria-label="Browser error">
+                <div class="error-illustration">
+                    <svg viewBox="0 0 170 125" aria-hidden="true">
+                        <g fill="none" stroke="#e4e4e6" stroke-width="1.45" stroke-linecap="round"
+                            stroke-linejoin="round" opacity=".96">
+                            <!-- Clean globe -->
+                            <circle cx="63" cy="61" r="42" />
+                            <path d="M63 19c-13 11-20 25-20 42s7 31 20 42" />
+                            <path d="M63 19c13 11 20 25 20 42s-7 31-20 42" />
+                            <path d="M25 45c11 7 24 10 38 10s27-3 38-10" />
+                            <path d="M22 61c12 8 26 11 41 11s29-3 41-11" />
+                            <path d="M27 80c10-6 22-9 36-9s26 3 36 9" />
+                            <!-- Sparse connected network -->
+                            <path d="M63 19v27l-18 13 10 21 22 13" />
+                            <path d="M31 45l23 3 9 24 18-11 17 9" />
+                            <path d="M35 84l10-25 10 21" />
+                            <path d="M54 48l20-8 9 20" />
+                            <!-- Small network nodes -->
+                            <g fill="#e4e4e6" stroke="none">
+                                <circle cx="63" cy="19" r="2.6" />
+                                <circle cx="63" cy="46" r="2.6" />
+                                <circle cx="45" cy="59" r="2.6" />
+                                <circle cx="54" cy="48" r="2.6" />
+                                <circle cx="74" cy="40" r="2.6" />
+                                <circle cx="83" cy="60" r="2.6" />
+                                <circle cx="55" cy="69" r="2.6" />
+                                <circle cx="77" cy="93" r="2.6" />
+                            </g>
+                            <!-- Shield overlaps the lower-right edge of the globe -->
+                            <path d="M123 63l21 13v26l-21 13-21-13V76z" />
+                            <path d="M123 81v12M123 98v2" stroke-width="2.5" />
+                            <!-- Reference decoration -->
+                            <path d="M5 76h18M145 48h22M145 72h22" opacity=".52" />
+                        </g>
+                        <g fill="none" stroke="#e4e4e6" stroke-width="1.2" stroke-linecap="round">
+                            <path d="M112 10l1 4M111 12l4 1" />
+                            <path d="M30 101l1 5M29 103l5 1" />
+                            <path d="M143 20l1 4M142 22l4 1" />
+                        </g>
+                    </svg>
+                </div>
+                <h1>This site can’t be reached</h1>
+                <p class="description" id="error-description">The web page might be temporarily down or it may have
+                    moved permanently to a new web address.</p>
+                <div class="checks">
+                    <div class="check"><span class="check-icon wifi">◔</span><span>Check your internet connection</span>
+                    </div>
+                    <div class="check"><span class="check-icon shield">♧</span><span>Check if Kairon is allowed to
+                            access the network</span></div>
+                    <div class="check"><span class="check-icon server"><i></i><i></i><i></i></span><span
+                            class="error-code" id="error-code">UNKNOWN_ERROR</span></div>
+                </div>
+                <div class="buttons">
+                    <button class="primary" id="retry-btn">Try again</button>
+                    <button class="secondary" id="back-btn">Go back</button>
+                </div>
+                <div class="details" id="details-toggle" role="button" tabindex="0" aria-expanded="false">Technical
+                    details</div>
+                <div class="tech-details" id="tech-details" hidden>
+                    <div class="tech-row"><span class="tech-label">Requested URL</span><span class="tech-value"
+                            id="tech-url"></span></div>
+                    <div class="tech-row"><span class="tech-label">Error code</span><span class="tech-value"
+                            id="tech-code"></span></div>
+                    <div class="tech-row" id="tech-desc-row" hidden><span class="tech-label">Error</span><span
+                            class="tech-value" id="tech-desc"></span></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // ── DYNAMIC ERROR INFO ─────────────────────────────────
+        // The main process loads this page with query params carrying the failed
+        // navigation's details: url (attempted URL), error (numeric Chromium net
+        // error code) and desc (the error code string, e.g. ERR_CONNECTION_RESET).
+        // All insertion uses textContent, so the values can never inject markup.
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                var url = params.get('url') || '';
+                var numeric = params.get('error') || '';
+                var desc = params.get('desc') || '';
+
+                // ── Resolve a display name for the error code ──
+                // Electron's did-fail-load errorDescription is the net error code
+                // string (e.g. "ERR_CONNECTION_RESET"), occasionally prefixed
+                // ("net::ERR_..."). Fall back to a small numeric→name table for the
+                // most common Chromium network errors, then to the raw number.
+                var CODE_NAMES = {
+                    '-1': 'ERR_FAILED',
+                    '-2': 'ERR_IO_PENDING',
+                    '-6': 'ERR_FILE_NOT_FOUND',
+                    '-7': 'ERR_TIMED_OUT',
+                    '-20': 'ERR_TOO_MANY_REDIRECTS',
+                    '-21': 'ERR_INVALID_URL',
+                    '-23': 'ERR_DISALLOWED_URL_SCHEME',
+                    '-100': 'ERR_CONNECTION_CLOSED',
+                    '-101': 'ERR_CONNECTION_RESET',
+                    '-102': 'ERR_CONNECTION_REFUSED',
+                    '-103': 'ERR_CONNECTION_ABORTED',
+                    '-104': 'ERR_CONNECTION_FAILED',
+                    '-105': 'ERR_NAME_NOT_RESOLVED',
+                    '-106': 'ERR_INTERNET_DISCONNECTED',
+                    '-107': 'ERR_SSL_PROTOCOL_ERROR',
+                    '-109': 'ERR_ADDRESS_UNREACHABLE',
+                    '-110': 'ERR_SSL_VERSION_OR_CIPHER_MISMATCH',
+                    '-112': 'ERR_SSL_CLIENT_AUTH_CERT_NEEDED',
+                    '-113': 'ERR_TUNNEL_CONNECTION_FAILED',
+                    '-115': 'ERR_SSL_PINNED_KEY_NOT_IN_CERT_CHAIN',
+                    '-118': 'ERR_CONNECTION_TIMED_OUT',
+                    '-119': 'ERR_HOST_RESOLVER_QUEUE_TOO_LARGE',
+                    '-130': 'ERR_TOO_MANY_OPEN_FILES',
+                    '-137': 'ERR_NAME_RESOLUTION_FAILED',
+                    '-200': 'ERR_CERT_COMMON_NAME_INVALID',
+                    '-201': 'ERR_CERT_DATE_INVALID',
+                    '-202': 'ERR_CERT_AUTHORITY_INVALID',
+                    '-203': 'ERR_CERT_CONTAINS_ERRORS',
+                    '-204': 'ERR_CERT_NO_REVOCATION_MECHANISM',
+                    '-205': 'ERR_CERT_UNABLE_TO_CHECK_REVOCATION',
+                    '-206': 'ERR_CERT_REVOKED',
+                    '-207': 'ERR_CERT_INVALID',
+                    '-208': 'ERR_CERT_WEAK_SIGNATURE_ALGORITHM',
+                    '-210': 'ERR_CERT_WEAK_KEY',
+                    '-300': 'ERR_CERT_NAME_CONSTRAINT_VIOLATION',
+                    '-337': 'ERR_SSL_SERVER_CERT_BAD_FORMAT',
+                    '-501': 'ERR_CACHE_MISS',
+                    '-504': 'ERR_INSECURE_RESPONSE'
+                };
+                var codeName = '';
+                if (desc) {
+                    var cleaned = String(desc).replace(/^net::/i, '');
+                    if (/^[A-Z][A-Z0-9_]+$/.test(cleaned)) codeName = cleaned;
+                }
+                if (!codeName && CODE_NAMES[numeric]) codeName = CODE_NAMES[numeric];
+                if (!codeName) codeName = numeric || 'UNKNOWN_ERROR';
+
+                // Error code row (the third check).
+                document.getElementById('error-code').textContent = codeName;
+
+                // Description: "The web page at <url> might be temporarily down ..."
+                if (url) {
+                    var descEl = document.getElementById('error-description');
+                    descEl.textContent = '';
+                    descEl.appendChild(document.createTextNode('The web page at '));
+                    var urlStrong = document.createElement('strong');
+                    urlStrong.textContent = url;
+                    descEl.appendChild(urlStrong);
+                    descEl.appendChild(document.createTextNode(' might be temporarily down or it may have moved permanently to a new web address.'));
+                }
+
+                // Technical details panel.
+                var techUrl = document.getElementById('tech-url');
+                if (url) techUrl.textContent = url;
+                var techCode = document.getElementById('tech-code');
+                techCode.textContent = numeric ? (codeName + ' (' + numeric + ')') : codeName;
+                var techDescRow = document.getElementById('tech-desc-row');
+                if (desc && String(desc) !== codeName && !/^net::/.test(String(desc))) {
+                    document.getElementById('tech-desc').textContent = desc;
+                    techDescRow.hidden = false;
+                }
+
+                // ── Buttons ────────────────────────────────────
+                // "Try again" re-navigates to the originally requested URL (the
+                // page is loaded from a local file, so a plain reload would just
+                // re-show the error page).
+                document.getElementById('retry-btn').addEventListener('click', function () {
+                    if (url) location.href = url;
+                    else location.reload();
+                });
+                document.getElementById('back-btn').addEventListener('click', function () {
+                    if (history.length > 1) history.back();
+                    else location.replace('about:blank');
+                });
+
+                // ── Technical details toggle ───────────────────
+                var toggle = document.getElementById('details-toggle');
+                var details = document.getElementById('tech-details');
+                function setOpen(open) {
+                    details.hidden = !open;
+                    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+                }
+                toggle.addEventListener('click', function () {
+                    setOpen(details.hidden);
+                });
+                toggle.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setOpen(details.hidden);
+                    }
+                });
+            } catch (e) {}
+        })();
+    </script>
+
+    <script>
+        // ── GLOBAL THEME LIVE SYNC ─────────────────────────────
+        // The persisted Theme Mode (FeatureStore) is the single source of truth.
+        // Main re-pushes the full snapshot to every Kairon-owned internal page on
+        // change; flip instantly and re-enable transitions after one frame.
+        (function () {
+            function applyTheme(mode) {
+                var theme = mode === 'light' ? 'light' : 'dark';
+                var root = document.documentElement;
+                if (root.dataset.theme === theme) return;
+                root.classList.add('theme-switching');
+                void root.offsetHeight; // recalc so the transition rule is active before values change
+                root.dataset.theme = theme;
+                setTimeout(function () { root.classList.remove('theme-switching'); }, 300);
+            }
+            try {
+                window.kairon.onSettingsUpdated(function (snapshot) {
+                    var mode = snapshot && snapshot.state && snapshot.state.themeSystem && snapshot.state.themeSystem.settings && snapshot.state.themeSystem.settings.mode;
+                    if (mode) applyTheme(mode);
+                });
+            } catch (e) {}
+        })();
+    </script>
+</body>
+
+</html>

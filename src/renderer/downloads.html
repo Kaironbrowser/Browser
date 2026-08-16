@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none';">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Downloads — Kairon</title>
+<style>
+  /* ══════════════════════════════════════════════════════════
+     KAIRON DOWNLOADS PAGE — Monochrome Dashboard
+     ══════════════════════════════════════════════════════════ */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    color-scheme: dark;
+    --bg-base:          #000000;
+    --grid-line:        rgba(255,255,255,0.035);
+    --grid-size:        36px;
+    --bg-surface:       #131313;
+    --bg-card:          #141414;
+    --bg-hover:         rgba(255,255,255,0.065);
+    --bg-active:        rgba(255,255,255,0.09);
+    --border-0:         rgba(255,255,255,0.07);
+    --border-1:         rgba(255,255,255,0.14);
+    --border-focus:     rgba(255,255,255,0.35);
+    --text-primary:     #eef0f8;
+    --text-secondary:   #8b93b5;
+    --text-tertiary:    #555e80;
+    --accent:           #ffffff;
+    --danger:           #f26b6b;
+    --success:          #34d39b;
+    --progress-track:   rgba(255,255,255,0.12);
+    --progress-fill:    #ffffff;
+
+    --r-sm:   6px;
+    --r-md:   10px;
+    --r-lg:   14px;
+    --r-xl:   18px;
+    --r-full: 9999px;
+
+    --dur-fast: 120ms;
+    --dur-base: 200ms;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+    --font-ui:     'Geist', -apple-system, sans-serif;
+    --font-mono:   'Geist Mono', 'SF Mono', monospace;
+
+    --overlay-bg:       rgba(0, 0, 0, 0.7);
+    --modal-bg:         #121212;
+    --modal-shadow:     0 16px 48px rgba(0, 0, 0, 0.6);
+  }
+
+  /* ── LIGHT THEME ──────────────────────────────────────────
+     Monochrome light palette matching the shared Kairon vocabulary
+     (settings/home/history): off-white surfaces, dark ink text, subtle
+     gray borders. Applied via data-theme on <html>. */
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --bg-base:          #f0f0f0;
+    --grid-line:        rgba(0, 0, 0, 0.04);
+    --bg-surface:       #ffffff;
+    --bg-card:          #fafafa;
+    --bg-hover:         rgba(0, 0, 0, 0.05);
+    --bg-active:        rgba(0, 0, 0, 0.08);
+    --border-0:         rgba(0, 0, 0, 0.08);
+    --border-1:         rgba(0, 0, 0, 0.14);
+    --border-focus:     rgba(0, 0, 0, 0.35);
+    --text-primary:     #141414;
+    --text-secondary:   #555555;
+    --text-tertiary:    #777777;
+    --accent:           #1a1a1a;
+    --danger:           #d64545;
+    --success:          #2fae7e;
+    --progress-track:   rgba(0, 0, 0, 0.12);
+    --progress-fill:    #1a1a1a;
+    --overlay-bg:       rgba(0, 0, 0, 0.35);
+    --modal-bg:         #ffffff;
+    --modal-shadow:     0 16px 48px rgba(0, 0, 0, 0.18);
+  }
+
+  /* Theme flip: suspend transitions/animations for one frame so every surface
+     re-skins instantly (Chromium freezes transitions in hidden/occluded
+     windows, which would otherwise leave stale colors). */
+  /* Theme flip: animate theme-dependent properties so Light↔Dark switches
+     feel smooth instead of snapping. The flip class drops ~300ms after the
+     switch, which also snaps any transition Chromium froze in a hidden or
+     occluded window to the new theme values (no stale colors). */
+  :root.theme-switching, :root.theme-switching *, :root.theme-switching *::before, :root.theme-switching *::after {
+    transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease, outline-color 220ms ease, box-shadow 220ms ease, fill 220ms ease, stroke 220ms ease !important;
+    animation: none !important;
+  }
+
+  /* Internal-page navigation entrance (?transition=1 set by main when this
+     page replaces another Kairon internal page): fades in with a slight rise.
+     The hidden state applies before first paint; a double-rAF releases it.
+     First loads render instantly — no class, no animation. Element-level
+     entrance animations are suppressed during the entrance so nothing plays
+     twice. */
+  html { transition: opacity 150ms ease-out, transform 150ms ease-out; }
+  html.page-enter { opacity: 0.45; transform: translateY(5px); }
+  html.page-enter * { animation: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    font-family: var(--font-ui);
+    font-size: 13.5px;
+    color: var(--text-primary);
+    background-color: var(--bg-base);
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: var(--grid-size) var(--grid-size);
+    background-position: -1px -1px;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    padding: 32px 44px;
+    animation: fadeIn 320ms var(--ease-out) both;
+  }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes itemIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes slideDown { from { opacity: 0; transform: translateY(-8px) scaleY(0.96); } to { opacity: 1; transform: translateY(0) scaleY(1); } }
+
+  ::-webkit-scrollbar { width: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-1); border-radius: var(--r-full); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-focus); }
+
+  /* ── HEADER ─────────────────────────────────────────────── */
+  #header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 20px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border-0);
+    flex-shrink: 0;
+  }
+  #header-left { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+  #header-left h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+  #entry-count { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+
+  #header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+  .btn {
+    height: 34px;
+    padding: 0 16px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-1);
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-ui);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--dur-fast) var(--ease-out);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .btn:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border-focus); }
+  .btn:focus-visible { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 2px var(--border-focus); }
+  .btn svg { width: 14px; height: 14px; }
+
+  .btn-primary {
+    background: var(--text-primary);
+    border-color: var(--text-primary);
+    color: var(--bg-base);
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: var(--accent); border-color: var(--accent); color: var(--bg-base); }
+
+  /* ── CONTENT ────────────────────────────────────────────── */
+  #content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 8px;
+  }
+
+  .download-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: var(--r-md);
+    cursor: default;
+    transition: background var(--dur-fast) var(--ease-out);
+    animation: itemIn 200ms var(--ease-out) both;
+    position: relative;
+    user-select: none;
+  }
+  .download-item:hover { background: var(--bg-hover); }
+  .download-item.openable { cursor: pointer; }
+
+  .download-icon {
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-0);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+  }
+  .download-icon svg { width: 19px; height: 19px; display: block; }
+
+  .download-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+  .download-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.35;
+  }
+
+  .download-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 0;
+  }
+  .download-meta .dl-source {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 420px;
+    color: var(--text-tertiary);
+  }
+  .download-meta .dl-status { white-space: nowrap; }
+  .download-meta .dl-status.failed { color: var(--danger); }
+
+  .download-progress {
+    width: 100%;
+    max-width: 420px;
+    height: 4px;
+    border-radius: var(--r-full);
+    background: var(--progress-track);
+    overflow: hidden;
+    margin-top: 2px;
+  }
+  .download-progress-fill {
+    height: 100%;
+    border-radius: var(--r-full);
+    background: var(--progress-fill);
+    transition: width 200ms var(--ease-out);
+  }
+
+  .download-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .action-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--r-sm);
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  }
+  .action-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .action-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--border-focus); border-radius: var(--r-sm); }
+  .action-btn svg { width: 15px; height: 15px; }
+  .action-btn.danger:hover { background: var(--bg-active); color: var(--danger); }
+
+  /* ── EMPTY STATE ────────────────────────────────────────── */
+  #empty-state {
+    display: flex;
+    align-items: center;
+    gap: 36px;
+    text-align: left;
+    padding: 40px 44px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-0);
+    border-radius: var(--r-lg);
+    animation: fadeIn 400ms var(--ease-out) both;
+  }
+  #empty-illustration { flex-shrink: 0; color: var(--text-tertiary); }
+  #empty-illustration svg { width: 88px; height: 88px; display: block; }
+  #empty-state-text h3 { font-size: 17px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+  #empty-state-text p { font-size: 13px; color: var(--text-secondary); max-width: 360px; line-height: 1.55; margin-bottom: 6px; }
+  #empty-state-text p.tip { color: var(--text-tertiary); font-size: 12px; }
+
+  /* ── MODAL (confirmation dialog) ────────────────────────── */
+  #modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none;
+    place-items: center;
+    background: var(--overlay-bg);
+    backdrop-filter: blur(6px);
+    animation: fadeIn 160ms var(--ease-out) both;
+  }
+  #modal-overlay.active { display: grid; }
+
+  #modal-dialog {
+    width: min(380px, 90%);
+    padding: 28px 24px 20px;
+    border-radius: var(--r-lg);
+    border: 1px solid var(--border-1);
+    background: var(--modal-bg);
+    box-shadow: var(--modal-shadow);
+    animation: slideDown 200ms var(--ease-out) both;
+  }
+  #modal-dialog h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); }
+  #modal-dialog p { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 20px; }
+  #modal-dialog .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  #modal-dialog .modal-actions .btn { height: 34px; }
+  #modal-dialog .btn-confirm { background: var(--text-primary); border-color: var(--text-primary); color: var(--bg-base); font-weight: 600; }
+  #modal-dialog .btn-confirm:hover { background: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<script>
+  // Apply the persisted theme before first paint: the main process passes the
+  // current FeatureStore value as ?theme= when loading this page. Live changes
+  // arrive via settings-updated (see the sync script at the end of the body).
+  try {
+    document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
+  } catch (e) {}
+</script>
+<script>
+  // Internal-page navigation entrance: main adds ?transition=1 when this page
+  // replaces another Kairon internal page. The hidden state is applied before
+  // first paint (no flash), then a double-rAF releases the fade/rise so the
+  // transition starts from the painted frame. First loads have no
+  // ?transition= and render instantly.
+  (function () {
+    try {
+      if (new URLSearchParams(location.search).get('transition') !== '1') return;
+      var root = document.documentElement;
+      var released = false;
+      function release() {
+        if (released) return;
+        released = true;
+        root.classList.remove('page-enter');
+      }
+      root.classList.add('page-enter');
+      requestAnimationFrame(function () {
+        requestAnimationFrame(release);
+      });
+      // Safety net: if rAF is throttled (e.g. the window is occluded right
+      // after navigation) never leave the page stuck at the 45% start state.
+      setTimeout(release, 350);
+    } catch (e) {}
+  })();
+</script>
+
+  <!-- ══ HEADER ═══════════════════════════════════════════ -->
+  <div id="header">
+    <div id="header-left">
+      <h1>Downloads</h1>
+      <span id="entry-count">0 items</span>
+    </div>
+    <div id="header-actions">
+      <button id="btn-clear" class="btn" title="Remove finished downloads from this list (files stay on disk)">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2.5 3.5h11M6.5 3.5V2h3v1.5M4 3.5l.7 10h6.6l.7-10M6.5 6.5v4.5M9.5 6.5v4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Clear all
+      </button>
+    </div>
+  </div>
+
+  <!-- ══ LIST ═════════════════════════════════════════════ -->
+  <div id="content" role="list" aria-label="Downloads list"></div>
+
+  <!-- ══ MODAL ═════════════════════════════════════════════ -->
+  <div id="modal-overlay">
+    <div id="modal-dialog" role="alertdialog" aria-modal="true" aria-labelledby="modal-title">
+      <h3 id="modal-title">Clear all downloads?</h3>
+      <p id="modal-text">Finished downloads will be removed from this list. The files themselves stay on your computer.</p>
+      <div class="modal-actions">
+        <button id="btn-modal-cancel" class="btn">Cancel</button>
+        <button id="btn-modal-confirm" class="btn btn-confirm">Clear</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const contentEl    = document.getElementById('content');
+  const entryCountEl = document.getElementById('entry-count');
+  const btnClear     = document.getElementById('btn-clear');
+  const modalOverlay = document.getElementById('modal-overlay');
+  const btnModalCancel = document.getElementById('btn-modal-cancel');
+  const btnModalConfirm = document.getElementById('btn-modal-confirm');
+
+  let allDownloads = [];
+
+  // ── ICONS / FORMATTING ──────────────────────────────────
+  const ICONS = {
+    document: '<svg viewBox="0 0 16 16" fill="none"><path d="M4 1.5h5.5L13 5v9.5H4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M9.5 1.8v3.2h3.2M6 8h4M6 10.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+    archive:  '<svg viewBox="0 0 16 16" fill="none"><rect x="2.5" y="5.5" width="11" height="9" rx="1.3" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5.5V3.5h7v2M5.2 3.5l1.3 2.6M8 3.5l1.3 2.6M10.8 3.5l1.3 2.6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+    image:    '<svg viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="1.6" stroke="currentColor" stroke-width="1.2"/><circle cx="5.8" cy="5.8" r="1.1" stroke="currentColor" stroke-width="1.2"/><path d="M4 11.5l2.8-2.8 2.2 2.2 2.8-2.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    video:    '<svg viewBox="0 0 16 16" fill="none"><rect x="2.5" y="3" width="11" height="10" rx="1.6" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 6l3.2 2-3.2 2z" fill="currentColor"/></svg>',
+    audio:    '<svg viewBox="0 0 16 16" fill="none"><path d="M4.5 11V4.4L11.5 2.8v6.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="3.5" cy="11" r="1.6" stroke="currentColor" stroke-width="1.2"/><circle cx="10.5" cy="9.2" r="1.6" stroke="currentColor" stroke-width="1.2"/></svg>',
+  };
+  const ICON_PAUSE  = '<svg viewBox="0 0 16 16" fill="none"><path d="M5 2.5v11M11 2.5v11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  const ICON_RESUME = '<svg viewBox="0 0 16 16" fill="none"><path d="M5 2.5l8 5.5-8 5.5z" fill="currentColor"/></svg>';
+  const ICON_CANCEL = '<svg viewBox="0 0 16 16" fill="none"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  const ICON_FOLDER = '<svg viewBox="0 0 16 16" fill="none"><path d="M2 3.5h3.8l1.2 1.5h7v7.5H2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+
+  function fileKind(d) {
+    const ext = (d.filename || '').includes('.') ? d.filename.split('.').pop().toLowerCase() : '';
+    const mime = (d.mimeType || '').toLowerCase();
+    if (mime.startsWith('image/')) return 'image';
+    if (mime.startsWith('video/')) return 'video';
+    if (mime.startsWith('audio/')) return 'audio';
+    if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'tgz', 'iso'].includes(ext)) return 'archive';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'heic'].includes(ext)) return 'image';
+    if (['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'mpg', 'mpeg'].includes(ext)) return 'video';
+    if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'opus'].includes(ext)) return 'audio';
+    return 'document';
+  }
+
+  function formatBytes(n) {
+    if (!Number.isFinite(n) || n <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let v = n, i = 0;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+    return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+  }
+
+  function formatEta(sec) {
+    if (!Number.isFinite(sec) || sec < 0) return '';
+    if (sec < 60) return `${Math.max(1, Math.round(sec))}s left`;
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    if (m < 60) return `${m}m ${s}s left`;
+    return `${Math.floor(m / 60)}h ${m % 60}m left`;
+  }
+
+  function formatTime(ts) {
+    if (!Number.isFinite(ts)) return '';
+    const d = new Date(ts);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (sameDay) return `Today · ${time}`;
+    const yesterday = new Date(now.getTime() - 86400000);
+    if (d.toDateString() === yesterday.toDateString()) return `Yesterday · ${time}`;
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ` · ${time}`;
+  }
+
+  function statusText(d) {
+    switch (d.state) {
+      case 'downloading': {
+        const total = d.totalBytes > 0 ? formatBytes(d.totalBytes) : 'unknown size';
+        let s = `${formatBytes(d.receivedBytes || 0)} of ${total}`;
+        if (d.speed > 0) s += ` · ${formatBytes(d.speed)}/s`;
+        if (Number.isFinite(d.etaSeconds) && d.etaSeconds != null && d.totalBytes > 0) s += ` · ${formatEta(d.etaSeconds)}`;
+        return s;
+      }
+      case 'paused':      return 'Paused';
+      case 'completed':   return 'Download complete';
+      case 'interrupted': return 'Interrupted — click to resume';
+      case 'failed':      return 'Failed';
+      case 'cancelled':   return 'Cancelled';
+      default:            return '';
+    }
+  }
+
+  function isActive(d) { return d.state === 'downloading' || d.state === 'paused' || d.state === 'interrupted'; }
+  function isOpenable(d) { return !!(d.savePath && (d.state === 'completed' || d.state === 'interrupted' || d.state === 'failed' || d.state === 'cancelled')); }
+
+  function sourceHost(url) {
+    try { return new URL(url).hostname; } catch { return ''; }
+  }
+
+  // ── RENDER ───────────────────────────────────────────────
+  function makeActionBtn(inner, label, cls, handler) {
+    const btn = document.createElement('button');
+    btn.className = 'action-btn' + (cls ? ' ' + cls : '');
+    btn.type = 'button';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+    btn.innerHTML = inner;
+    btn.addEventListener('click', (e) => { e.stopPropagation(); handler(); });
+    return btn;
+  }
+
+  function buildItem(d) {
+    const item = document.createElement('div');
+    item.className = 'download-item' + (isOpenable(d) ? ' openable' : '');
+    item.dataset.id = String(d.id);
+    item.setAttribute('role', 'listitem');
+    item.tabIndex = -1;
+
+    const icon = document.createElement('div');
+    icon.className = 'download-icon';
+    icon.innerHTML = ICONS[fileKind(d)] || ICONS.document;
+
+    const body = document.createElement('div');
+    body.className = 'download-body';
+
+    const name = document.createElement('div');
+    name.className = 'download-name';
+    name.textContent = d.filename || 'Unknown file';
+    name.title = d.filename || '';
+    body.appendChild(name);
+
+    const meta = document.createElement('div');
+    meta.className = 'download-meta';
+    const source = sourceHost(d.url);
+    if (source) {
+      const srcEl = document.createElement('span');
+      srcEl.className = 'dl-source';
+      srcEl.textContent = source;
+      srcEl.title = d.url || '';
+      meta.appendChild(srcEl);
+    }
+    const status = document.createElement('span');
+    status.className = 'dl-status' + (d.state === 'failed' ? ' failed' : '');
+    status.textContent = statusText(d);
+    meta.appendChild(status);
+    const time = document.createElement('span');
+    time.className = 'dl-time';
+    time.textContent = d.completedAt ? formatTime(d.completedAt) : formatTime(d.startedAt);
+    meta.appendChild(time);
+    body.appendChild(meta);
+
+    if (d.state === 'downloading' || d.state === 'paused') {
+      const bar = document.createElement('div');
+      bar.className = 'download-progress';
+      const fill = document.createElement('div');
+      fill.className = 'download-progress-fill';
+      const pct = d.totalBytes > 0 && Number.isFinite(d.receivedBytes)
+        ? Math.min(100, Math.max(0, Math.round((d.receivedBytes / d.totalBytes) * 100)))
+        : 0;
+      fill.style.width = `${pct}%`;
+      bar.appendChild(fill);
+      body.appendChild(bar);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'download-actions';
+    if (d.state === 'downloading') {
+      actions.appendChild(makeActionBtn(ICON_PAUSE, 'Pause download', null, () => window.kairon.pauseDownload(d.id)));
+      actions.appendChild(makeActionBtn(ICON_CANCEL, 'Cancel download', 'danger', () => window.kairon.cancelDownload(d.id)));
+    } else if (d.state === 'paused' || d.state === 'interrupted') {
+      actions.appendChild(makeActionBtn(ICON_RESUME, 'Resume download', null, () => window.kairon.resumeDownload(d.id)));
+      actions.appendChild(makeActionBtn(ICON_CANCEL, 'Cancel download', 'danger', () => window.kairon.cancelDownload(d.id)));
+    } else if (d.savePath) {
+      actions.appendChild(makeActionBtn(ICON_FOLDER, 'Show in folder', null, () => window.kairon.showDownloadInFolder(d.id)));
+    }
+
+    item.appendChild(icon);
+    item.appendChild(body);
+    item.appendChild(actions);
+
+    item.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('.download-actions')) return;
+      if (isOpenable(d)) window.kairon.openDownload(d.id);
+    });
+    item.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && isOpenable(d)) {
+        e.preventDefault();
+        window.kairon.openDownload(d.id);
+      }
+    });
+
+    return item;
+  }
+
+  function render() {
+    contentEl.innerHTML = '';
+    entryCountEl.textContent = `${allDownloads.length} ${allDownloads.length === 1 ? 'item' : 'items'}`;
+
+    if (!allDownloads.length) {
+      const empty = document.createElement('div');
+      empty.id = 'empty-state';
+      empty.innerHTML =
+        '<div id="empty-illustration">' + (ICONS.archive || '') + '</div>' +
+        '<div id="empty-state-text">' +
+          '<h3>Nothing downloaded yet</h3>' +
+          '<p>Files you download while browsing Kairon will show up here, along with your recent download history.</p>' +
+          '<p class="tip">Clearing this list never deletes files from your computer.</p>' +
+        '</div>';
+      contentEl.appendChild(empty);
+      return;
+    }
+
+    for (const d of allDownloads) contentEl.appendChild(buildItem(d));
+  }
+
+  // ── CLEAR CONFIRMATION ───────────────────────────────────
+  function showClearConfirmation() { modalOverlay.classList.add('active'); }
+  function hideClearConfirmation() { modalOverlay.classList.remove('active'); }
+
+  function clearAll() {
+    window.kairon.clearDownloads().then(() => hideClearConfirmation()).catch(() => hideClearConfirmation());
+  }
+
+  // ── EVENTS ───────────────────────────────────────────────
+  btnClear.addEventListener('click', showClearConfirmation);
+  btnModalCancel.addEventListener('click', hideClearConfirmation);
+  btnModalConfirm.addEventListener('click', clearAll);
+  modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) hideClearConfirmation(); });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modalOverlay.classList.contains('active')) hideClearConfirmation();
+  });
+
+  // ── LOAD ─────────────────────────────────────────────────
+  function load() {
+    window.kairon.getDownloads().then((list) => {
+      allDownloads = Array.isArray(list) ? list : [];
+      render();
+    }).catch(() => { allDownloads = []; render(); });
+  }
+
+  window.kairon.onDownloadsUpdated((list) => {
+    allDownloads = Array.isArray(list) ? list : [];
+    render();
+  });
+
+  load();
+})();
+</script>
+
+<script>
+  // ── GLOBAL THEME LIVE SYNC ───────────────────────────────
+  // The persisted Theme Mode (FeatureStore) is the single source of truth.
+  // Main re-pushes the full snapshot to every Kairon-owned internal page on
+  // change; flip instantly and re-enable transitions after one frame.
+  (function () {
+    function applyTheme(mode) {
+      var theme = mode === 'light' ? 'light' : 'dark';
+      var root = document.documentElement;        if (root.dataset.theme === theme) return;
+        root.classList.add('theme-switching');
+        void root.offsetHeight; // recalc so the transition rule is active before values change
+        root.dataset.theme = theme;
+        setTimeout(function () { root.classList.remove('theme-switching'); }, 300);
+    }
+    try {
+      window.kairon.onSettingsUpdated(function (snapshot) {
+        var mode = snapshot && snapshot.state && snapshot.state.themeSystem && snapshot.state.themeSystem.settings && snapshot.state.themeSystem.settings.mode;
+        if (mode) applyTheme(mode);
+      });
+    } catch (e) {}
+  })();
+</script>
+</body>
+</html>

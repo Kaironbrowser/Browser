@@ -133,10 +133,12 @@
      --dur-slow:   320ms;
      --dur-page:   420ms;
      --dur-modal:  280ms;
+     --dur-layout: 260ms; /* top↔sidebar tab-position morph */
      --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);
      --ease-in:    cubic-bezier(0.4, 0, 1, 1);
      --ease-snappy: cubic-bezier(0.2, 0, 0, 1);
      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+     --ease-layout: cubic-bezier(0.4, 0, 0.2, 1); /* ease-in-out for layout morphs */
    
      /* Typography */
      --font-ui:   'Geist', -apple-system, sans-serif;
@@ -250,11 +252,27 @@
      --shields-border:       rgba(0, 0, 0, 0.14);
    }
    
-   /* While a theme flip is in progress, transitions are suspended so the whole
-      chrome re-skins instantly (Chromium freezes transitions in hidden/occluded
-      windows, which would leave stale colors behind). */
+   /* While a theme flip is in progress every chrome surface animates its
+      theme-dependent properties (backgrounds, text, borders, shadows, SVG
+      fills/strokes) so Light↔Dark switches feel smooth instead of snapping.
+      The flip class is dropped ~300ms after the switch, which also guarantees
+      no stale colors: if Chromium froze the transition in a hidden/occluded
+      window, elements snap to the new theme values the moment the class drops.
+      The existing CSS-variable palette stays the single source of truth — this
+      rule only transitions the properties that consume it. */
    .theme-switching,
-   .theme-switching * { transition: none !important; }
+   .theme-switching *,
+   .theme-switching *::before,
+   .theme-switching *::after {
+     transition:
+       background-color 220ms ease,
+       color 220ms ease,
+       border-color 220ms ease,
+       outline-color 220ms ease,
+       box-shadow 220ms ease,
+       fill 220ms ease,
+       stroke 220ms ease !important;
+   }
    
    /* ── BASE ─────────────────────────────────────────────────── */
    html, body {
@@ -276,6 +294,10 @@
      padding: 10px;
      background: var(--bg-base);
      animation: appShellIn var(--dur-page) var(--ease-out) both;
+     /* Top↔sidebar tab-position switch morphs the flex shell itself. */
+     transition:
+       padding var(--dur-layout) var(--ease-layout),
+       gap var(--dur-layout) var(--ease-layout);
    }
    
    button { cursor: pointer; font-family: var(--font-ui); font-size: 13px; }
@@ -330,6 +352,7 @@
    /* ── LEFT RAIL ────────────────────────────────────────────── */
    #left-rail {
      width: var(--rail-w);
+     min-width: 0;
      flex-shrink: 0;
      height: calc(100vh - 20px);
      display: flex;
@@ -344,10 +367,28 @@
        border-color var(--dur-base) var(--ease-out),
        background-color var(--dur-base) var(--ease-out),
        box-shadow var(--dur-base) var(--ease-out),
-       transform var(--dur-base) var(--ease-out);
+       transform var(--dur-base) var(--ease-out),
+       opacity var(--dur-layout) var(--ease-layout),
+       padding var(--dur-layout) var(--ease-layout),
+       border-width var(--dur-layout) var(--ease-layout);
      overflow: hidden;
      box-shadow: var(--shadow-sm);
      will-change: width, transform;
+   }
+
+   /* During a top↔sidebar switch the rail collapses/expands on the same
+      layout timeline as the top tab bar so the whole shell moves as one.
+      (The collapse button keeps its own snappy timing outside the switch.) */
+   body.layout-animating #left-rail {
+     transition:
+       width var(--dur-layout) var(--ease-layout),
+       border-color var(--dur-base) var(--ease-out),
+       background-color var(--dur-base) var(--ease-out),
+       box-shadow var(--dur-base) var(--ease-out),
+       transform var(--dur-base) var(--ease-out),
+       opacity var(--dur-layout) var(--ease-layout),
+       padding var(--dur-layout) var(--ease-layout),
+       border-width var(--dur-layout) var(--ease-layout);
    }
    
    #left-rail[data-collapsed='true'] {
@@ -705,17 +746,34 @@
      transition:
        background-color var(--dur-base) var(--ease-out),
        border-color var(--dur-base) var(--ease-out),
+       border-width var(--dur-layout) var(--ease-layout),
+       border-radius var(--dur-layout) var(--ease-layout),
        box-shadow var(--dur-base) var(--ease-out),
        transform var(--dur-base) var(--ease-out);
      will-change: transform;
    }
    
    #top-tab-bar {
-     display: none;
-     /* Positioned so a lifted (absolute) tab anchors to this strip itself,
-        not to #center-col (which is position:relative + will-change:
-        transform). */
-     position: relative;
+     /* Sidebar mode: collapsed to zero height (faded + nudged up) instead of
+        display:none so the top↔sidebar switch can morph smoothly. */
+     display: flex;
+     align-items: center;
+     position: relative; /* lifted (absolute) tabs anchor to this strip itself */
+     height: 0;
+     min-height: 0;
+     opacity: 0;
+     overflow: hidden;
+     padding: 0 110px 0 12px;
+     transform: translateY(-6px);
+     pointer-events: none;
+     transition:
+       height var(--dur-layout) var(--ease-layout),
+       opacity var(--dur-layout) var(--ease-layout),
+       transform var(--dur-layout) var(--ease-layout),
+       padding var(--dur-layout) var(--ease-layout),
+       border-color var(--dur-layout) var(--ease-layout),
+       background-color var(--dur-base) var(--ease-out);
+     will-change: height, opacity, transform;
    }
    
    /* ── CHROME BAR ───────────────────────────────────────────── */
@@ -736,7 +794,9 @@
      transition:
        background-color var(--dur-base) var(--ease-out),
        border-color var(--dur-base) var(--ease-out),
-       box-shadow var(--dur-base) var(--ease-out);
+       box-shadow var(--dur-base) var(--ease-out),
+       padding var(--dur-layout) var(--ease-layout),
+       border-radius var(--dur-layout) var(--ease-layout);
    }
    
    #drag-zone {
@@ -779,6 +839,31 @@
    }
    .nav-btn:active { transform: scale(0.90); }
    .nav-btn:disabled { opacity: 0.28; pointer-events: none; }
+
+   /* Downloads toolbar button — the badge surfaces the active download count */
+   #btn-downloads { position: relative; }
+   #btn-downloads.active {
+     background: var(--surface-2);
+     border-color: var(--border-0);
+     color: var(--text-primary);
+   }
+   #downloads-badge {
+     position: absolute;
+     top: 1px;
+     right: 1px;
+     min-width: 14px;
+     height: 14px;
+     padding: 0 3px;
+     border-radius: var(--r-full);
+     background: var(--text-primary);
+     color: var(--bg-chrome);
+     font-size: 9px;
+     font-weight: 700;
+     line-height: 14px;
+     text-align: center;
+     pointer-events: none;
+   }
+   #downloads-badge.hidden { display: none; }
 
    #zoom-controls {
      height: 30px;
@@ -932,6 +1017,9 @@
    #win-controls { position: absolute; top: 12px; right: 16px; z-index: 10000;
      display: flex;
      gap: var(--s-1);
+     transition:
+       top var(--dur-layout) var(--ease-layout),
+       right var(--dur-layout) var(--ease-layout);
    } body[data-tab-position="top"] #win-controls { top: 10px; right: 12px; }
    
    #win-controls button {
@@ -1252,7 +1340,16 @@
    }
    
    body[data-tab-position="top"] #left-rail {
-     display: none;
+     /* Collapsed (not display:none) so the switch morphs: the rail slides shut
+        and the flex shell hands its space to #center-col. */
+     width: 0;
+     padding-left: 0;
+     padding-right: 0;
+     border-width: 0;
+     opacity: 0;
+     transform: translateX(-8px);
+     box-shadow: none;
+     pointer-events: none;
    }
    
    body[data-tab-position="top"] #center-col {
@@ -1282,14 +1379,23 @@
      background: var(--bg-chrome);
      border-bottom: 1px solid var(--border-0);
      height: 48px;
+     opacity: 1;
+     transform: none;
+     pointer-events: auto;
      /* Allow horizontal scrolling when tabs are too small */
      overflow-x: auto;
      overflow-y: hidden;
      flex-wrap: nowrap;
      scrollbar-width: thin;
+     /* Same layout morph list as the collapsed state so the bar expands AND
+        collapses smoothly on the tab-position switch. */
      transition:
-       background-color var(--dur-base) var(--ease-out),
-       border-color var(--dur-base) var(--ease-out);
+       height var(--dur-layout) var(--ease-layout),
+       opacity var(--dur-layout) var(--ease-layout),
+       transform var(--dur-layout) var(--ease-layout),
+       padding var(--dur-layout) var(--ease-layout),
+       border-color var(--dur-layout) var(--ease-layout),
+       background-color var(--dur-base) var(--ease-out);
    }
    
    body[data-tab-position="top"] .top-tab {

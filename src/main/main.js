@@ -12,6 +12,7 @@ const { setupContextMenu } = require('./context-menu');
 const { setupTabContextMenu } = require('./tab-context-menu');
 const { HistoryService } = require('./history');
 const { TabSleepManager } = require('./tab-sleep');
+const { DownloadManager } = require('./downloads');
 
 const APP_USER_MODEL_ID = 'com.kairon.browser';
 
@@ -206,10 +207,14 @@ function applyWebRtcProtectionToTabs() {
 }
 
 let historyService = null;
+let downloadManager = null;
 
 let mainWindow = null;
 let overlayWindow = null;
 let activeOverlaySuggestions = null;
+// Current anchor info for the floating downloads panel (or null when closed).
+let activeDownloadsPanel = null;
+let _lastDownloadsPanelBounds = null;
 let _aggressiveWebRequestHandler = null;
 let _aggressiveActive = false;
 let _aggressiveBlockedCount = 0;
@@ -390,7 +395,11 @@ const MAX_SETTINGS_PAYLOAD_LENGTH = 2_000_000;
 const HOME_PAGE_URL = 'kairon://home';
 const HOME_PAGE_FILE = path.join(__dirname, '../renderer/home.html');
 const HISTORY_PAGE_FILE = path.join(__dirname, '../renderer/history.html');
+const DOWNLOAD_PAGE_URL = 'kairon://downloads';
+const DOWNLOAD_PAGE_FILE = path.join(__dirname, '../renderer/downloads.html');
 const HTTPS_WARNING_FILE = path.join(__dirname, '../renderer/https-warning.html');
+const ERROR_PAGE_FILE = path.join(__dirname, "../renderer/can't_be_reached.html");
+const IP_NOT_FOUND_FILE = path.join(__dirname, '../renderer/ip_not_found.html');
 const SETTINGS_PAGE_URL = 'kairon://settings';
 const SETTINGS_PAGE_FILE = path.join(__dirname, '../renderer/settings.html');
 let logFilePath = '';
@@ -448,6 +457,10 @@ function isHistoryUrl(input) {
   return typeof input === 'string' && input.trim().toLowerCase() === 'kairon://history';
 }
 
+function isDownloadsUrl(input) {
+  return typeof input === 'string' && input.trim().toLowerCase() === DOWNLOAD_PAGE_URL;
+}
+
 function isSettingsUrl(input) {
   return typeof input === 'string' && /^kairon:\/\/settings(\/|$)/i.test(input.trim());
 }
@@ -479,6 +492,7 @@ function normalizeNavigationTarget(urlInput) {
   if (input.length > MAX_URL_LENGTH) return null;
   if (isHomeUrl(input) || input.toLowerCase() === 'home') return HOME_PAGE_URL;
   if (isHistoryUrl(input)) return 'kairon://history';
+  if (isDownloadsUrl(input)) return DOWNLOAD_PAGE_URL;
   const settingsTarget = normalizeSettingsUrl(input);
   if (settingsTarget) return settingsTarget;
 
@@ -516,6 +530,18 @@ function isTabBrowserView(event) {
 // event.sender.getURL() no longer matches and privileges are lost immediately.
 // Normal web pages can never match because their URL is never the local
 // history.html file URL.
+let _downloadsPageFileUrl = null;
+function getDownloadsPageFileUrl() {
+  if (_downloadsPageFileUrl === null) {
+    try {
+      _downloadsPageFileUrl = pathToFileURL(DOWNLOAD_PAGE_FILE).href;
+    } catch (e) {
+      _downloadsPageFileUrl = '';
+    }
+  }
+  return _downloadsPageFileUrl;
+}
+
 let _historyPageFileUrl = null;
 function getHistoryPageFileUrl() {
   if (_historyPageFileUrl === null) {
@@ -562,6 +588,77 @@ function getHttpsWarningPageFileUrl() {
     }
   }
   return _httpsWarningPageFileUrl;
+}
+
+let _errorPageFileUrl = null;
+function getErrorPageFileUrl() {
+  if (_errorPageFileUrl === null) {
+    try {
+      _errorPageFileUrl = pathToFileURL(ERROR_PAGE_FILE).href;
+    } catch (e) {
+      _errorPageFileUrl = '';
+    }
+  }
+  return _errorPageFileUrl;
+}
+
+// True when the given URL is the local error page file (protocol + host +
+// pathname only, so the ?theme/?url/?error query params and any hash are
+// ignored; case is normalized for Windows paths). Used to keep the failed
+// URL in the address bar while the error page is displayed.
+function isErrorPageFileUrl(input) {
+  const target = getErrorPageFileUrl();
+  if (!target || !input) return false;
+  try {
+    const norm = (raw) => {
+      const parsed = new URL(raw);
+      return `${parsed.protocol}${parsed.host}${parsed.pathname}`.toLowerCase();
+    };
+    return norm(input) === norm(target);
+  } catch (e) {
+    return false;
+  }
+}
+
+let _ipNotFoundPageFileUrl = null;
+function getIpNotFoundPageFileUrl() {
+  if (_ipNotFoundPageFileUrl === null) {
+    try {
+      _ipNotFoundPageFileUrl = pathToFileURL(IP_NOT_FOUND_FILE).href;
+    } catch (e) {
+      _ipNotFoundPageFileUrl = '';
+    }
+  }
+  return _ipNotFoundPageFileUrl;
+}
+
+// Same trust/recognition model as isErrorPageFileUrl, for the dedicated
+// DNS/name-resolution failure page (ip_not_found.html).
+function isIpNotFoundPageFileUrl(input) {
+  const target = getIpNotFoundPageFileUrl();
+  if (!target || !input) return false;
+  try {
+    const norm = (raw) => {
+      const parsed = new URL(raw);
+      return `${parsed.protocol}${parsed.host}${parsed.pathname}`.toLowerCase();
+    };
+    return norm(input) === norm(target);
+  } catch (e) {
+    return false;
+  }
+}
+
+// DNS/name-resolution failures — the Chromium net error codes that mean the
+// requested hostname could not be resolved to an IP address. Detection is
+// based on the numeric net error code from did-fail-load, never on message
+// text:
+//   -105 ERR_NAME_NOT_RESOLVED      (Chrome shows DNS_PROBE_FINISHED_NXDOMAIN)
+//   -137 ERR_NAME_RESOLUTION_FAILED (Chrome shows DNS_PROBE_FINISHED_BAD_CONFIG)
+// These are distinct from connection-level failures (ERR_CONNECTION_*, ERR_*
+// TIMED_OUT, etc.), which keep the generic error page.
+const DNS_RESOLUTION_ERROR_CODES = new Set([-105, -137]);
+function isDnsResolutionError(errorCode) {
+  return Number.isInteger(errorCode) && DNS_RESOLUTION_ERROR_CODES.has(errorCode);
 }
 
 // The persisted theme is the single source of truth for the whole app — the
@@ -645,6 +742,31 @@ function isInternalSettingsPage(event) {
   }
 }
 
+// The internal downloads page (loaded via loadFile from DOWNLOAD_PAGE_FILE)
+// is trusted only while its current URL is the local downloads.html file —
+// the same trust model as the history page. If the page navigates away,
+// event.sender.getURL() no longer matches and privileges are revoked.
+function isInternalDownloadsPage(event) {
+  if (!event || !event.sender || typeof event.sender.getURL !== 'function') return false;
+  const target = getDownloadsPageFileUrl();
+  if (!target) return false;
+  try {
+    const current = event.sender.getURL();
+    if (!current) return false;
+    const norm = (raw) => {
+      try {
+        const parsed = new URL(raw);
+        return `${parsed.protocol}${parsed.host}${parsed.pathname}`.toLowerCase();
+      } catch (e) {
+        return String(raw).toLowerCase();
+      }
+    };
+    return norm(current) === norm(target);
+  } catch (e) {
+    return false;
+  }
+}
+
 // True when a webContents is currently showing the internal settings page.
 // Used by emitSettingsState so live settings updates only reach pages that
 // still have privileged access (trust follows the loaded URL).
@@ -654,13 +776,13 @@ function isSettingsPageWebContents(wc) {
 }
 
 // True when a webContents is currently showing any Kairon-owned internal page
-// (home / history / settings / https-warning). These pages consume the public
+// (home / history / settings / https-warning / error page). These pages consume the public
 // feature snapshot to live-sync the global theme; receiving the snapshot is
 // harmless (it contains no secrets), and trust follows the loaded URL exactly
 // like the settings page. Normal websites can never match.
 function isInternalKaironPageWebContents(wc) {
   if (!wc || typeof wc.getURL !== 'function' || wc.isDestroyed()) return false;
-  const urls = [getHomePageFileUrl(), getHistoryPageFileUrl(), getSettingsPageFileUrl(), getHttpsWarningPageFileUrl()].filter(Boolean);
+  const urls = [getHomePageFileUrl(), getHistoryPageFileUrl(), getDownloadsPageFileUrl(), getSettingsPageFileUrl(), getHttpsWarningPageFileUrl(), getErrorPageFileUrl(), getIpNotFoundPageFileUrl()].filter(Boolean);
   if (!urls.length) return false;
   try {
     const current = wc.getURL();
@@ -1229,39 +1351,6 @@ function isPlainHttpUrl(input) {
   } catch {
     return false;
   }
-}function buildLoadErrorPage({ attemptedUrl, errorCode, errorDescription, theme }) {
-  const safeUrl = String(attemptedUrl || '').replace(/[<>&"]/g, '');
-  const safeCode = String(errorCode || '').replace(/[<>&"]/g, '');
-  const safeDescription = String(errorDescription || 'Failed to load this page.').replace(/[<>&"]/g, '');
-  // The generated error page follows the global theme (dark values are the
-  // existing ones, unchanged).
-  const light = theme === 'light';
-  const palette = light
-    ? { bg: '#f0f0f0', card: '#f7f7f7', border: '#d8d8d8', text: '#1a1a1a', sub: '#5f5f5f', codeBg: '#e8e8e8', codeText: '#1a1a1a' }
-    : { bg: '#0b0b14', card: '#111427', border: '#272a3f', text: '#e4e6f5', sub: '#b7bbd6', codeBg: '#0a0e20', codeText: '#8bd0ff' };
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Page unavailable</title>
-  <style>
-    body{margin:0;background:${palette.bg};color:${palette.text};font-family:Segoe UI,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
-    .card{max-width:640px;padding:28px;border:1px solid ${palette.border};border-radius:14px;background:${palette.card}}
-    h1{margin:0 0 10px;font-size:22px}
-    p{margin:0 0 8px;color:${palette.sub};line-height:1.45}
-    code{display:block;margin-top:10px;padding:8px 10px;border-radius:8px;background:${palette.codeBg};color:${palette.codeText}}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>This site cannot be reached</h1>
-    <p>Kairon could not load the requested page.</p>
-    <p>${safeDescription}</p>
-    <code>${safeCode} ${safeUrl}</code>
-  </div>
-</body>
-</html>`;
 }
 
 function showHttpsOnlyWarning(tab, httpUrl) {
@@ -1385,21 +1474,88 @@ function sendActiveTabSignals() {
   mainWindow.webContents.send('loading', !!tab.loading);
 }
 
+// ── INTERNAL PAGE TRANSITIONS ────────────────────────────────────────────
+// Navigating between two Kairon-owned internal pages (home / settings /
+// history / downloads) gets a short, subtle cross-fade: the current page dips
+// to ~45% opacity over INTERNAL_PAGE_FADE_MS, then the new page is loaded with
+// ?transition=1 so it fades in from 45% opacity with a ~5px rise (~150ms).
+// First loads (launch, new tabs, restores) and navigation from normal websites
+// never animate, and prefers-reduced-motion disables the whole effect.
+const INTERNAL_PAGE_FADE_MS = 70;
+
+function prefersReducedMotion() {
+  try {
+    return nativeTheme.shouldUseReducedMotion === true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Slightly fade the currently displayed internal page just before it is
+// replaced by another internal page. Opacity only (compositor-friendly); the
+// inline styles die with the document when the new page loads.
+// executeJavaScript is async, so the script re-checks that it still runs in
+// the same document it was queued for: during rapid navigation the next page
+// can commit before the script executes, and without this guard the inline
+// fade styles would leak into (and stick on) the newly loaded document.
+function fadeOutInternalPage(tab) {
+  const wc = tab.view && tab.view.webContents;
+  if (!wc || wc.isDestroyed()) return;
+  let expectedPath = '';
+  try {
+    expectedPath = new URL(wc.getURL()).pathname;
+  } catch (e) {
+    expectedPath = '';
+  }
+  if (!expectedPath) return;
+  try {
+    wc.executeJavaScript(
+      "(function(){try{var d=document.documentElement;if(!d||!location.pathname||location.pathname!=='" + expectedPath + "')return;d.style.transition='opacity " + INTERNAL_PAGE_FADE_MS + "ms ease-out';d.style.opacity='0.45';}catch(e){}})();"
+    ).catch(() => {});
+  } catch (e) {}
+}
+
 function navigateTabToTarget(tab, target) {
   if (DIAG) console.info('[tab] navigating to', target, 'from', tab.url);
   // Defense in depth: only web schemes (plus the internal home/history pages)
   // may ever reach loadURL(). All current callers normalize first, but this
   // keeps any future caller (e.g. popup handling) from loading local schemes.
-  if (!isAllowedHttpUrl(target) && !isHomeUrl(target) && !isHistoryUrl(target) && !isSettingsUrl(target)) {
+  if (!isAllowedHttpUrl(target) && !isHomeUrl(target) && !isHistoryUrl(target) && !isDownloadsUrl(target) && !isSettingsUrl(target)) {
     if (DIAG) console.info('[tab] navigation target rejected', target);
     return;
   }
+
+  // Internal → internal navigation gets the entrance transition. It only
+  // fires when the current tab is already showing a Kairon-owned internal
+  // page — never on first load, new tabs, session restore, or from normal
+  // websites (their webContents URL cannot match an internal file URL).
+  const animateTransition = isInternalKaironPageWebContents(tab.view && tab.view.webContents) && !prefersReducedMotion();
+
+  // Load an internal page, optionally with the entrance transition. When
+  // animating, the old page fades out first and the new page receives
+  // ?transition=1 so its document fades in on top; otherwise it renders
+  // instantly (first paint must never animate).
+  const loadInternal = (file, extraQuery) => {
+    const query = getThemeQuery();
+    if (extraQuery) Object.assign(query, extraQuery);
+    if (animateTransition) query.transition = '1';
+    const doLoad = () => {
+      tab.view.webContents.loadFile(file, { query }).catch((err) => logError(`tab-${tab.id}-internal-load-failed`, err));
+    };
+    if (animateTransition) {
+      fadeOutInternalPage(tab);
+      setTimeout(doLoad, INTERNAL_PAGE_FADE_MS);
+    } else {
+      doLoad();
+    }
+  };
+
   if (target === HOME_PAGE_URL) {
     tab.isInternalHome = true;
     tab.url = HOME_PAGE_URL;
     tab.title = 'Home';
     // Pass the persisted theme so the page renders it before first paint.
-    tab.view.webContents.loadFile(HOME_PAGE_FILE, { query: getThemeQuery() }).catch((err) => logError(`tab-${tab.id}-home-load-failed`, err));
+    loadInternal(HOME_PAGE_FILE);
     return;
   }
   if (isHistoryUrl(target)) {
@@ -1407,7 +1563,16 @@ function navigateTabToTarget(tab, target) {
     tab.url = 'kairon://history';
     tab.title = 'History';
     // Pass the persisted theme so the page renders it before first paint.
-    tab.view.webContents.loadFile(HISTORY_PAGE_FILE, { query: getThemeQuery() }).catch((err) => logError(`tab-${tab.id}-history-load-failed`, err));
+    loadInternal(HISTORY_PAGE_FILE);
+    return;
+  }
+  if (isDownloadsUrl(target)) {
+    // Internal downloads page — loaded locally, never remote content.
+    tab.isInternalHome = true;
+    tab.url = DOWNLOAD_PAGE_URL;
+    tab.title = 'Downloads';
+    // Pass the persisted theme so the page renders it before first paint.
+    loadInternal(DOWNLOAD_PAGE_FILE);
     return;
   }
   if (isSettingsUrl(target)) {
@@ -1421,9 +1586,7 @@ function navigateTabToTarget(tab, target) {
     // Pass the persisted theme (and any deep-link section) as query params so
     // the page can render the correct theme before first paint. The page still
     // re-applies the authoritative value from its live snapshot on load.
-    const query = getThemeQuery();
-    if (section) query.section = section;
-    tab.view.webContents.loadFile(SETTINGS_PAGE_FILE, { query }).catch((err) => logError(`tab-${tab.id}-settings-load-failed`, err));
+    loadInternal(SETTINGS_PAGE_FILE, section ? { section } : null);
     return;
   }
   tab.isInternalHome = false;
@@ -1592,6 +1755,19 @@ function createTab(initialTarget = HOME_PAGE_URL) {
   };
 
   const onDidNavigate = (_, url) => {
+    if (tab.showingErrorPage) {
+      // The error page itself just loaded: keep the originally requested URL in
+      // the address bar and never record the local error file in history. Any
+      // navigation away (Try again / Go back / address bar) clears the flag and
+      // falls through to the normal bookkeeping below.
+      if (isErrorPageFileUrl(url) || isIpNotFoundPageFileUrl(url)) {
+        tab.url = tab.showingErrorPage.url || url;
+        if (activeTabId === id) mainWindow.webContents.send('url-changed', tab.url);
+        emitTabsState();
+        return;
+      }
+      tab.showingErrorPage = null;
+    }
     tab.url = tab.isInternalHome ? (tab.url || HOME_PAGE_URL) : (tab.httpsOnlyWarningUrl || url);
     if (activeTabId === id) mainWindow.webContents.send('url-changed', tab.url);
     emitTabsState();
@@ -1659,9 +1835,16 @@ function createTab(initialTarget = HOME_PAGE_URL) {
       }
       return;
     }
-    const html = buildLoadErrorPage({ attemptedUrl: validatedURL, errorCode, errorDescription, theme: getCurrentThemeMode() });
-    const dataUrl = `data:text/html;charset=UTF-8,${encodeURIComponent(html)}`;
-    tab.view.webContents.loadURL(dataUrl).catch((err) => logError(`tab-${id}-error-page-load-failed`, err));
+    // Display a Kairon error page for the failed load. The page receives the
+    // failed URL, numeric error code and error-code string as query params and
+    // renders them itself.
+    tab.showingErrorPage = { url: validatedURL };
+    const query = { theme: getCurrentThemeMode(), url: validatedURL, error: String(errorCode), desc: errorDescription };
+    // DNS/name-resolution failures get the dedicated ip_not_found.html page;
+    // every other Chromium network error keeps the generic error page. Both
+    // receive the same query params and share the error-page navigation model.
+    const errorFile = isDnsResolutionError(errorCode) ? IP_NOT_FOUND_FILE : ERROR_PAGE_FILE;
+    tab.view.webContents.loadFile(errorFile, { query }).catch((err) => logError(`tab-${id}-error-page-load-failed`, err));
   };
 
   const onBeforeInputEvent = (event, input) => {
@@ -2467,9 +2650,11 @@ function createWindow() {
 
   mainWindow.on('resize', () => {
     updateBounds();
+    updateDownloadsPanelBounds();
   });
   mainWindow.on('move', () => {
     updateOverlayBounds();
+    updateDownloadsPanelBounds();
   });
 
   // When the window regains OS focus (Alt+Tab return, settings/overlay closing),
@@ -2791,6 +2976,97 @@ function createOverlayWindow() {
     .catch((err) => {
       logError('overlay-load-failed', err);
     });
+
+  // When the user clicks a webpage (or any other surface) while the downloads
+  // panel is open, the overlay loses focus — close the panel (idempotent).
+  overlayWindow.on('blur', () => {
+    if (activeDownloadsPanel) hideDownloadsPanel();
+  });
+}
+
+// ── DOWNLOADS PANEL ───────────────────────────────────────────
+// The downloads panel is rendered by the existing overlay window (the same
+// infrastructure as the omnibox suggestions), anchored to the Downloads
+// toolbar button. The main renderer reports the button's rect in renderer
+// CSS pixels; main converts it to screen bounds and sizes the overlay to
+// exactly the panel rect so it stays above BrowserView content and only
+// intercepts mouse events over the panel itself.
+
+// Push the current downloads snapshot to every surface that renders it:
+// the main renderer (toolbar badge), the overlay (floating panel), and the
+// internal downloads page loaded in any tab. Trust follows the loaded URL,
+// same as settings/history live updates.
+function broadcastDownloadsState() {
+  if (!downloadManager) return;
+  let snapshot;
+  try { snapshot = downloadManager.getDownloads(); } catch (e) { return; }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.webContents.send('downloads-updated', snapshot); } catch (e) { }
+  }
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    try { overlayWindow.webContents.send('downloads-updated', snapshot); } catch (e) { }
+  }
+  for (const tab of tabs.values()) {
+    try {
+      const wc = tab.view && tab.view.webContents;
+      if (!wc || wc.isDestroyed()) continue;
+      if (isInternalDownloadsPage({ sender: wc })) wc.send('downloads-updated', snapshot);
+    } catch (e) { }
+  }
+}
+
+function updateDownloadsPanelBounds() {
+  if (!mainWindow || mainWindow.isDestroyed() || !overlayWindow || overlayWindow.isDestroyed()) return;
+  if (!activeDownloadsPanel) return;
+  const rect = activeDownloadsPanel.rect;
+  if (!rect || !Number.isFinite(rect.right) || !Number.isFinite(rect.bottom)) return;
+
+  const mainBounds = mainWindow.getContentBounds();
+  const [currentW, currentH] = mainWindow.getContentSize();
+  const PAD = 8;
+
+  // Right-align the panel with the button's right edge; clamp inside the window.
+  const panelW = Math.min(376, Math.max(240, currentW - PAD * 2));
+  let left = Math.round(mainBounds.x + rect.right - panelW);
+  left = Math.max(mainBounds.x + PAD, Math.min(left, mainBounds.x + currentW - panelW - PAD));
+  const top = Math.round(mainBounds.y + rect.bottom + 6);
+  const maxH = Math.max(120, mainBounds.y + mainBounds.height - top - PAD);
+
+  // Estimate the desired height from the current list so the overlay sizes
+  // exactly to the content; the panel CSS flexes the list to fill the rest.
+  const count = downloadManager ? downloadManager.getDownloads().length : 0;
+  const headerH = 46;
+  const footerH = 46;
+  const rowH = 60;
+  const listH = count > 0 ? Math.min(count, 7) * rowH : 84;
+  const panelH = Math.min(Math.round(headerH + listH + footerH + 2), Math.round(maxH), 480);
+
+  const bounds = { x: left, y: top, width: Math.round(panelW), height: Math.round(panelH) };
+  const prev = _lastDownloadsPanelBounds;
+  if (!prev || bounds.x !== prev.x || bounds.y !== prev.y || bounds.width !== prev.width || bounds.height !== prev.height) {
+    _lastDownloadsPanelBounds = bounds;
+    overlayWindow.setBounds(bounds);
+  }
+}
+
+function hideDownloadsPanel() {
+  activeDownloadsPanel = null;
+  _lastDownloadsPanelBounds = null;
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  try {
+    overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+  } catch (e) { }
+  try {
+    if (overlayWindow.setFocusable) overlayWindow.setFocusable(false);
+  } catch (e) { }
+  try { overlayWindow.webContents.send('downloads-panel-hide'); } catch (e) { }
+  // Echo to the main renderer so the toolbar button's open state stays in sync
+  // when the panel is closed from the overlay side (Escape / webpage click).
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.webContents.send('downloads-panel-hide'); } catch (e) { }
+  }
+  _lastOverlayBounds = null;
+  updateOverlayBounds();
 }
 
 
@@ -3558,6 +3834,15 @@ app.whenReady().then(async () => {
 
   const sess = session.fromPartition('persist:browser');
   installTelemetryRequestBlocker(sess);
+
+  // Initialize the download manager — it observes Electron's existing
+  // 'will-download' pipeline (no custom save prompts or paths are added).
+  try {
+    downloadManager = new DownloadManager({ store, onStateChange: broadcastDownloadsState });
+    downloadManager.attach(sess);
+  } catch (e) {
+    logError('downloads-init-failed', e);
+  }
   // Initialize adblocker service only when the feature is enabled and mode is not 'off'.
   try {
     const adSettings = featureStore.getFeatureSettings('adBlocker') || {};
@@ -3666,6 +3951,89 @@ app.whenReady().then(async () => {
     if (!_isHistoryTrusted(event)) throw new Error('Unauthorized IPC sender');
     if (!historyService) return 0;
     return historyService.getEntryCount();
+  });
+
+  // ── DOWNLOADS IPC (accept from trusted windows AND the internal downloads page) ──
+
+  // Downloads IPC is only reachable from trusted windows and from the internal
+  // downloads page itself (its webContents URL must still be downloads.html).
+  const _isDownloadsTrusted = (event) => isTrustedIpcSender(event) || (isTabBrowserView(event) && isInternalDownloadsPage(event));
+
+  ipcMain.handle('downloads-get', (event) => {
+    if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager) return [];
+    return downloadManager.getDownloads();
+  });
+
+  ipcMain.handle('downloads-clear', (event) => {
+    if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager) return false;
+    return downloadManager.clearCompleted();
+  });
+
+  ipcMain.handle('downloads-pause', (event, id) => {
+    if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager || !Number.isInteger(id)) return false;
+    return downloadManager.pause(id);
+  });
+
+  ipcMain.handle('downloads-resume', (event, id) => {
+    if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager || !Number.isInteger(id)) return false;
+    return downloadManager.resume(id);
+  });
+
+  ipcMain.handle('downloads-cancel', (event, id) => {
+    if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager || !Number.isInteger(id)) return false;
+    return downloadManager.cancel(id);
+  });
+
+  ipcMain.handle('downloads-open', async (event, id) => {
+    if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager || !Number.isInteger(id)) return false;
+    return downloadManager.openFile(id);
+  });
+
+  ipcMain.handle('downloads-show-in-folder', (event, id) => {
+    if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager || !Number.isInteger(id)) return false;
+    return downloadManager.showInFolder(id);
+  });
+
+  ipcMain.handle('downloads-open-folder', async (event) => {
+    if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager) return false;
+    return downloadManager.openDownloadsFolder();
+  });
+
+  // ── DOWNLOADS PANEL IPC ───────────────────────────────────
+  // The main renderer anchors the panel by sending the Downloads button's
+  // rect; main sizes the overlay to the panel and tells it to render.
+  ipcMain.on('show-downloads-panel', (event, payload) => {
+    if (!isTrustedIpcSender(event)) return;
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    const rect = payload && payload.rect && typeof payload.rect === 'object' ? payload.rect : null;
+    if (!rect || !Number.isFinite(rect.right) || !Number.isFinite(rect.bottom)) return;
+
+    // The panel and the omnibox suggestions share the overlay — never both.
+    activeOverlaySuggestions = null;
+    _lastOverlaySuggestionBounds = null;
+    try { overlayWindow.webContents.send('overlay-hide'); } catch (e) { }
+
+    activeDownloadsPanel = { rect, at: Date.now() };
+    try { overlayWindow.setIgnoreMouseEvents(false); } catch (e) { }
+    try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(true); } catch (e) { }
+    try { overlayWindow.webContents.send('downloads-panel-show', { rect }); } catch (e) { }
+    // Echo to the main renderer so the toolbar button's open state stays in sync.
+    try { mainWindow.webContents.send('downloads-panel-show', { rect }); } catch (e) { }
+    updateDownloadsPanelBounds();
+    try { overlayWindow.focus(); } catch (e) { }
+  });
+
+  ipcMain.on('hide-downloads-panel', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    hideDownloadsPanel();
   });
 
   // Expose a diagnostic endpoint for adblock state (trusted renderer only)

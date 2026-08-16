@@ -87,6 +87,8 @@ const SEND_CHANNELS = new Set([
   'tab-context-menu',
   'open-history-entry',
   'chrome-ui-focus',
+  'show-downloads-panel',
+  'hide-downloads-panel',
 ]);
 
 const INVOKE_CHANNELS = new Set([
@@ -107,6 +109,14 @@ const INVOKE_CHANNELS = new Set([
   'history-delete-entry',
   'history-clear',
   'history-get-count',
+  'downloads-get',
+  'downloads-clear',
+  'downloads-pause',
+  'downloads-resume',
+  'downloads-cancel',
+  'downloads-open',
+  'downloads-show-in-folder',
+  'downloads-open-folder',
 ]);
 const RECEIVE_CHANNELS = new Set([
   'url-changed',
@@ -120,6 +130,9 @@ const RECEIVE_CHANNELS = new Set([
   'adblock-css-updated',
   'overlay-suggestions',
   'overlay-hide',
+  'downloads-updated',
+  'downloads-panel-show',
+  'downloads-panel-hide',
 ]);
 
 // Minimal, safe scriptlets executed at document_start to help neutralize
@@ -304,6 +317,25 @@ const api = {
   deleteHistoryEntry: (id) => invoke('history-delete-entry', id),
   clearHistory: () => invoke('history-clear'),
   getHistoryCount: () => invoke('history-get-count'),
+
+  // ── Downloads API (backend data layer + actions, no UI) ──
+  getDownloads: () => invoke('downloads-get'),
+  clearDownloads: () => invoke('downloads-clear'),
+  pauseDownload: (id) => invoke('downloads-pause', id),
+  resumeDownload: (id) => invoke('downloads-resume', id),
+  cancelDownload: (id) => invoke('downloads-cancel', id),
+  openDownload: (id) => invoke('downloads-open', id),
+  showDownloadInFolder: (id) => invoke('downloads-show-in-folder', id),
+  openDownloadsFolder: () => invoke('downloads-open-folder'),
+  onDownloadsUpdated: (cb) => on('downloads-updated', cb),
+
+  // ── Downloads panel (browser chrome floating panel) ──────
+  // The panel is rendered by the existing overlay window; the main renderer
+  // anchors it by sending the toolbar button's rect (renderer CSS pixels).
+  showDownloadsPanel: (payload) => send('show-downloads-panel', payload),
+  hideDownloadsPanel: () => send('hide-downloads-panel'),
+  onDownloadsPanelShow: (cb) => on('downloads-panel-show', cb),
+  onDownloadsPanelHide: (cb) => on('downloads-panel-hide', cb),
 };
 
 contextBridge.exposeInMainWorld('kairon', Object.freeze(api));
