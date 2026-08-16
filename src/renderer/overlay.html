@@ -44,7 +44,7 @@
        panel re-skins through the shared Kairon light vocabulary (off-white
        surface, dark ink, gray borders) via the data-theme switch. */
     :root {
-      --dl-bg:          #15151c;
+      --dl-bg:          #000000;
       --dl-bg-hover:    rgba(255, 255, 255, 0.055);
       --dl-bg-active:   rgba(255, 255, 255, 0.09);
       --dl-border:      rgba(255, 255, 255, 0.09);
@@ -64,7 +64,7 @@
     }
 
     :root[data-theme='light'] {
-      --dl-bg:          #fbfbfb;
+      --dl-bg:          #ffffff;
       --dl-bg-hover:    rgba(0, 0, 0, 0.05);
       --dl-bg-active:   rgba(0, 0, 0, 0.08);
       --dl-border:      rgba(0, 0, 0, 0.12);
@@ -214,8 +214,7 @@
       transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
     }
     .dl-icon-btn:hover { background: var(--dl-btn-hover); color: var(--dl-text); }
-    .dl-icon-btn:focus-visible { outline: none; border-color: var(--dl-border); box-shadow: 0 0 0 2px rgba(255,255,255,0.18); }
-    :root[data-theme='light'] .dl-icon-btn:focus-visible { box-shadow: 0 0 0 2px rgba(0,0,0,0.18); }
+    .dl-icon-btn:focus, .dl-icon-btn:focus-visible { outline: none; }
     .dl-icon-btn svg { display: block; }
 
     #downloads-menu {
@@ -245,7 +244,7 @@
       cursor: pointer;
     }
     #downloads-menu button:hover { background: var(--dl-bg-hover); }
-    #downloads-menu button:focus-visible { outline: none; background: var(--dl-bg-hover); }
+    #downloads-menu button:focus, #downloads-menu button:focus-visible { outline: none; }
 
     #downloads-panel-list {
       flex: 1;
@@ -276,7 +275,8 @@
       transition: background 120ms ease;
       user-select: none;
     }
-    .dl-row:hover, .dl-row:focus-visible { background: var(--dl-bg-hover); outline: none; }
+    .dl-row:hover { background: var(--dl-bg-hover); }
+    .dl-row:focus, .dl-row:focus-visible { outline: none; }
     .dl-row.openable { cursor: pointer; }
 
     .dl-icon {
@@ -362,8 +362,7 @@
       transition: background 120ms ease, border-color 120ms ease;
     }
     .dl-footer-btn:hover { background: var(--dl-btn-hover); border-color: var(--dl-border); }
-    .dl-footer-btn:focus-visible { outline: none; border-color: var(--dl-border); box-shadow: 0 0 0 2px rgba(255,255,255,0.18); }
-    :root[data-theme='light'] .dl-footer-btn:focus-visible { box-shadow: 0 0 0 2px rgba(0,0,0,0.18); }
+    .dl-footer-btn:focus, .dl-footer-btn:focus-visible { outline: none; }
     .dl-footer-btn.dl-primary {
       background: var(--dl-progress-fill);
       border-color: var(--dl-progress-fill);
@@ -371,6 +370,241 @@
       font-weight: 600;
     }
     .dl-footer-btn.dl-primary:hover { background: var(--dl-btn-hover); border-color: var(--dl-border); color: var(--dl-text); }
+
+    /* ── APPLICATION MENU ────────────────────────────────────────
+       Monochrome desktop-style menu rendered by the overlay window so it
+       always paints above BrowserView content. Same surface language as the
+       downloads panel: near-black charcoal, thin low-contrast border, subtle
+       row hover, right-aligned shortcut labels — no gradients, no color. */
+    :root {
+      --am-bg:          #000000;
+      --am-bg-hover:    rgba(255, 255, 255, 0.055);
+      --am-bg-active:   rgba(255, 255, 255, 0.09);
+      --am-border:      rgba(255, 255, 255, 0.09);
+      --am-divider:     rgba(255, 255, 255, 0.07);
+      --am-text:        #eef0f8;
+      --am-text-2:      #8b93b5;
+      --am-text-3:      #5d6480;
+      --am-disabled:    #3d4255;
+      --am-focus:       rgba(255, 255, 255, 0.18);
+      --am-overlay:     rgba(0, 0, 0, 0.55);
+    }
+
+    :root[data-theme='light'] {
+      --am-bg:          #ffffff;
+      --am-bg-hover:    rgba(0, 0, 0, 0.05);
+      --am-bg-active:   rgba(0, 0, 0, 0.08);
+      --am-border:      rgba(0, 0, 0, 0.12);
+      --am-divider:     rgba(0, 0, 0, 0.07);
+      --am-text:        #1a1a1a;
+      --am-text-2:      #5f5f5f;
+      --am-text-3:      #8a8a8a;
+      --am-disabled:    #b3b3b3;
+      --am-focus:       rgba(0, 0, 0, 0.18);
+      --am-overlay:     rgba(0, 0, 0, 0.40);
+    }
+
+    /* The menu fills the overlay exactly; height is clamped by main when the
+       window is too short, and the list scrolls internally in that case. */
+    #app-menu {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 284px;
+      height: 100%;
+      box-sizing: border-box;
+      padding: 6px;
+      background: var(--am-bg);
+      border: 1px solid var(--am-border);
+      border-radius: 10px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+      overflow-y: auto;
+      color: var(--am-text);
+      font-size: 13px;
+      line-height: 1.4;
+      transform-origin: top left;
+      animation: am-in 150ms cubic-bezier(0.2, 0.7, 0.3, 1);
+      /* The overlay body/root are pointer-transparent by design (omnibox
+         click-through model); interactive panels re-enable it. Inherited by
+         every menu item, so hover + clicks work while the menu is open. */
+      pointer-events: auto;
+    }
+    #app-menu[hidden] { display: none; }
+    #app-menu.am-closing { animation: am-out 130ms ease-in forwards; }
+    #app-menu::-webkit-scrollbar { width: 8px; }
+    #app-menu::-webkit-scrollbar-thumb { background: var(--am-divider); border-radius: 9999px; }
+    #app-menu::-webkit-scrollbar-thumb:hover { background: var(--am-text-3); }
+    @keyframes am-in {
+      from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+      to   { opacity: 1; transform: none; }
+    }
+    @keyframes am-out {
+      from { opacity: 1; transform: none; }
+      to   { opacity: 0; transform: translateY(-4px) scale(0.99); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #app-menu, #app-menu.am-closing { animation: none; }
+    }
+
+    .am-label {
+      padding: 10px 14px 4px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--am-text-3);
+      user-select: none;
+    }
+    .am-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      height: 30px;
+      padding: 0 14px;
+      border: none;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--am-text);
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12.5px;
+      text-align: left;
+      cursor: pointer;
+      transition: background 90ms ease, color 90ms ease;
+    }
+    .am-item:hover:not(:disabled) { background: var(--am-bg-hover); }
+    .am-item:active:not(:disabled) { background: var(--am-bg-active); }
+    .am-item:focus, .am-item:focus-visible { outline: none; }
+    .am-item:disabled { color: var(--am-disabled); cursor: default; }
+    .am-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .am-shortcut {
+      flex-shrink: 0;
+      font-family: 'Geist Mono', 'SF Mono', monospace;
+      font-size: 10.5px;
+      color: var(--am-text-3);
+    }
+    .am-item:disabled .am-shortcut { color: var(--am-disabled); }
+    .am-note {
+      flex-shrink: 0;
+      font-size: 10.5px;
+      color: var(--am-disabled);
+    }
+    .am-sep {
+      height: 1px;
+      margin: 7px 14px;
+      background: var(--am-divider);
+    }
+
+    .am-zoom-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      height: 36px;
+      margin: 0 4px;
+    }
+    .am-zoom-btn {
+      width: 30px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--am-divider);
+      border-radius: 7px;
+      background: transparent;
+      color: var(--am-text);
+      font-size: 15px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 90ms ease;
+    }
+    .am-zoom-btn:hover { background: var(--am-bg-hover); }
+    .am-zoom-btn:active { background: var(--am-bg-active); }
+    .am-zoom-btn:focus, .am-zoom-btn:focus-visible { outline: none; }
+    .am-zoom-value {
+      flex: 1;
+      text-align: center;
+      font-family: 'Geist Mono', 'SF Mono', monospace;
+      font-size: 11px;
+      color: var(--am-text-2);
+      user-select: none;
+    }
+    .am-zoom-reset {
+      width: 30px;
+      height: 26px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--am-text-3);
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 90ms ease, color 90ms ease;
+    }
+    .am-zoom-reset:hover { background: var(--am-bg-hover); color: var(--am-text); }
+    .am-zoom-reset:focus, .am-zoom-reset:focus-visible { outline: none; }
+
+    /* ── ABOUT DIALOG ───────────────────────────────────────────
+       Centered modal rendered by the overlay at full-window size (the overlay
+       covers the whole window when no panel is open). Monochrome card on a
+       dimmed backdrop — same design language as the rest of Kairon. */
+    #about-dialog {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      /* Same pointer model as the app menu: the backdrop and card (close
+         button) must receive clicks while the dialog is open. */
+      pointer-events: auto;
+    }
+    #about-dialog[hidden] { display: none; }
+    #about-backdrop {
+      position: absolute;
+      inset: 0;
+      background: var(--am-overlay);
+    }
+    #about-card {
+      position: relative;
+      width: 320px;
+      padding: 28px 28px 24px;
+      background: var(--am-bg);
+      border: 1px solid var(--am-border);
+      border-radius: 12px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+      text-align: center;
+      color: var(--am-text);
+      transform-origin: center;
+      animation: am-in 160ms cubic-bezier(0.2, 0.7, 0.3, 1);
+    }
+    #about-logo { width: 42px; height: 42px; margin: 0 auto 14px; }
+    #about-logo svg { display: block; }
+    #about-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
+    #about-version {
+      font-size: 11px;
+      font-family: 'Geist Mono', 'SF Mono', monospace;
+      color: var(--am-text-3);
+      margin: 0 0 14px;
+    }
+    #about-desc { font-size: 12.5px; color: var(--am-text-2); line-height: 1.5; margin: 0 0 20px; }
+    #about-close {
+      height: 30px;
+      padding: 0 18px;
+      border: 1px solid var(--am-border);
+      border-radius: 7px;
+      background: var(--am-bg-hover);
+      color: var(--am-text);
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12.5px;
+      cursor: pointer;
+      transition: background 90ms ease;
+    }
+    #about-close:hover { background: var(--am-bg-active); }
+    #about-close:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--am-focus); }
+    @media (prefers-reduced-motion: reduce) {
+      #about-card { animation: none; }
+    }
   </style>
   <script>
     // Apply the persisted theme before first paint: the main process passes the
@@ -409,6 +643,72 @@
       <div id="downloads-panel-footer">
         <button id="downloads-clear-btn" class="dl-footer-btn">Clear</button>
         <button id="downloads-show-more-btn" class="dl-footer-btn dl-primary">Show more</button>
+      </div>
+    </div>
+
+    <!-- Application menu — anchored to the menu button in the top-left of the
+         chrome. The main process sizes the overlay to exactly this menu's
+         rect, so it paints above BrowserView content and only captures mouse
+         events over itself. Disabled items reflect features that don't exist
+         yet (New Window, Bookmarks, Extensions) or the live browser state
+         (Back/Forward). -->
+    <div id="app-menu" role="menu" aria-label="Kairon application menu" hidden>
+      <div class="am-section" role="presentation">
+        <div class="am-label">Main</div>
+        <button type="button" class="am-item" role="menuitem" data-action="new-tab"><span class="am-name">New Tab</span><span class="am-shortcut">Ctrl+T</span></button>
+        <button type="button" class="am-item" role="menuitem" data-action="new-window" disabled><span class="am-name">New Window</span><span class="am-shortcut">Ctrl+N</span></button>
+        <button type="button" class="am-item" role="menuitem" data-action="new-incognito"><span class="am-name">New Incognito Window</span><span class="am-shortcut">Ctrl+Shift+N</span></button>
+      </div>
+      <div class="am-sep" role="separator"></div>
+      <div class="am-section" role="presentation">
+        <div class="am-label">Page</div>
+        <button type="button" class="am-item" role="menuitem" data-action="back"><span class="am-name">Back</span><span class="am-shortcut">Alt+←</span></button>
+        <button type="button" class="am-item" role="menuitem" data-action="forward"><span class="am-name">Forward</span><span class="am-shortcut">Alt+→</span></button>
+        <button type="button" class="am-item" role="menuitem" data-action="reload"><span class="am-name">Reload</span><span class="am-shortcut">Ctrl+R</span></button>
+        <button type="button" class="am-item" role="menuitem" data-action="find"><span class="am-name">Find</span><span class="am-shortcut">Ctrl+F</span></button>
+        <div class="am-zoom-row" role="group" aria-label="Page zoom">
+          <button type="button" class="am-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+          <span class="am-zoom-value" id="am-zoom-value" aria-live="polite">100%</span>
+          <button type="button" class="am-zoom-btn" data-action="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+          <button type="button" class="am-zoom-reset" data-action="zoom-reset" title="Reset zoom" aria-label="Reset zoom">↺</button>
+        </div>
+        <button type="button" class="am-item" role="menuitem" data-action="fullscreen"><span class="am-name" id="am-fullscreen-label">Enter Fullscreen</span><span class="am-shortcut">F11</span></button>
+      </div>
+      <div class="am-sep" role="separator"></div>
+      <div class="am-section" role="presentation">
+        <div class="am-label">Browser</div>
+        <button type="button" class="am-item" role="menuitem" data-action="history"><span class="am-name">History</span><span class="am-shortcut">Ctrl+H</span></button>
+        <button type="button" class="am-item" role="menuitem" data-action="downloads"><span class="am-name">Downloads</span><span class="am-shortcut">Ctrl+J</span></button>
+        <button type="button" class="am-item" role="menuitem" data-action="bookmarks" disabled><span class="am-name">Bookmarks</span><span class="am-note">Not available</span></button>
+        <button type="button" class="am-item" role="menuitem" data-action="extensions" disabled><span class="am-name">Extensions</span><span class="am-note">Not available</span></button>
+      </div>
+      <div class="am-sep" role="separator"></div>
+      <div class="am-section" role="presentation">
+        <div class="am-label">Kairon</div>
+        <button type="button" class="am-item" role="menuitem" data-action="settings"><span class="am-name">Settings</span><span class="am-shortcut">Ctrl+,</span></button>
+        <button type="button" class="am-item" role="menuitem" data-action="about"><span class="am-name">About Kairon</span></button>
+      </div>
+      <div class="am-sep" role="separator"></div>
+      <div class="am-section" role="presentation">
+        <div class="am-label">System</div>
+        <button type="button" class="am-item" role="menuitem" data-action="exit"><span class="am-name">Exit</span><span class="am-shortcut">Alt+F4</span></button>
+      </div>
+    </div>
+
+    <!-- About dialog — centered modal at full-window overlay size. -->
+    <div id="about-dialog" role="dialog" aria-modal="true" aria-labelledby="about-title" hidden>
+      <div id="about-backdrop"></div>
+      <div id="about-card">
+        <div id="about-logo" aria-hidden="true">
+          <svg width="42" height="42" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="128" height="128" fill="#000000"/>
+            <path d="M37.3333 20V108C37.3333 111.314 40.0196 114 43.3333 114C46.6471 114 49.3333 111.314 49.3333 108V71.2L90.1333 20C93.4667 14.4 101.467 15.2 104.133 18.8C106.8 22.4 106.267 28.4 102.4 32L60.9333 75.2L86.9333 108C90.1333 110.8 90.9333 116 88.8 119.6C86.6667 123.2 80.8 124 77.3333 121.6L37.3333 90.4V20Z" fill="white"/>
+          </svg>
+        </div>
+        <h2 id="about-title">Kairon Browser</h2>
+        <p id="about-version">Version 1.0.0</p>
+        <p id="about-desc">A privacy-focused browser with a built-in AI sidebar.</p>
+        <button type="button" id="about-close">Close</button>
       </div>
     </div>
   </div>

@@ -139,6 +139,13 @@ export function createUiController(kairon, store, onLayoutChange) {
   const zoomValue       = document.getElementById('zoom-value');
   const btnDownloads    = document.getElementById('btn-downloads');
   const downloadsBadge  = document.getElementById('downloads-badge');
+  const btnAppMenu      = document.getElementById('btn-app-menu');
+  const findBar         = document.getElementById('find-bar');
+  const findInput       = document.getElementById('find-input');
+  const findCount       = document.getElementById('find-count');
+  const findPrevBtn     = document.getElementById('find-prev');
+  const findNextBtn     = document.getElementById('find-next');
+  const findCloseBtn    = document.getElementById('find-close');
 
   // ── TAB POSITION SETUP ─────────────────────────────────────
   let tabPosition = localStorage.getItem('kairon:tab-position') || 'top';
@@ -164,10 +171,12 @@ export function createUiController(kairon, store, onLayoutChange) {
     _renderTabs();
     _animateTabPositionLayout();
 
-    // The toolbar geometry changed — keep the downloads panel anchored once
+    // The toolbar geometry changed — keep the floating panels anchored once
     // mid-morph and once after the shell settles.
     setTimeout(_reanchorDownloadsPanel, 60);
     setTimeout(_reanchorDownloadsPanel, 380);
+    setTimeout(_reanchorAppMenu, 60);
+    setTimeout(_reanchorAppMenu, 380);
     setTimeout(() => document.body.classList.remove('layout-animating'), 360);
   }
 
@@ -252,6 +261,7 @@ export function createUiController(kairon, store, onLayoutChange) {
   }
 
   function _openDownloadsPanel() {
+    _closeAppMenu();
     downloadsPanelOpen = true;
     btnDownloads.classList.add('active');
     btnDownloads.setAttribute('aria-expanded', 'true');
@@ -280,6 +290,84 @@ export function createUiController(kairon, store, onLayoutChange) {
     }
     downloadsBadge.textContent = String(_downloadsActiveCount);
     downloadsBadge.classList.toggle('hidden', _downloadsActiveCount === 0);
+  }
+
+  // ── APPLICATION MENU ───────────────────────────────────────
+  // The menu is rendered by the existing overlay window (same infrastructure
+  // as the downloads panel) so it always paints above BrowserView content.
+  // This controller only anchors it (menu button rect), tracks open state, and
+  // keeps the button's pressed state in sync with the overlay's life cycle.
+  let appMenuOpen = false;
+
+  function _getAppMenuButtonRect() {
+    const r = btnAppMenu.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height };
+  }
+
+  // Re-anchor after the toolbar layout changes (window resize, tab-position
+  // switch, rail collapse) so the menu stays glued to the button.
+  function _reanchorAppMenu() {
+    if (!appMenuOpen || !btnAppMenu) return;
+    kairon.showAppMenu({ rect: _getAppMenuButtonRect() });
+  }
+
+  function _openAppMenu() {
+    if (appMenuOpen) return;
+    _closeDownloadsPanel();
+    appMenuOpen = true;
+    btnAppMenu.classList.add('active');
+    btnAppMenu.setAttribute('aria-expanded', 'true');
+    kairon.showAppMenu({ rect: _getAppMenuButtonRect() });
+  }
+
+  function _closeAppMenu() {
+    if (!appMenuOpen) return;
+    appMenuOpen = false;
+    btnAppMenu.classList.remove('active');
+    btnAppMenu.removeAttribute('aria-expanded');
+    kairon.hideAppMenu();
+  }
+
+  function _toggleAppMenu() {
+    if (appMenuOpen) _closeAppMenu();
+    else _openAppMenu();
+  }
+
+  // ── FIND BAR ───────────────────────────────────────────────
+  // A compact find-in-page bar in the chrome. It lives inside #center-col so
+  // the BrowserView shifts down when visible; layout metrics follow via the
+  // ResizeObserver on center-col. Find results stream back from main.
+  let findBarOpen = false;
+  let _findInputTimer = null;
+
+  function _openFindBar() {
+    _closeAppMenu();
+    _closeDownloadsPanel();
+    if (findBarOpen) {
+      findInput.focus();
+      findInput.select();
+      return;
+    }
+    findBarOpen = true;
+    findBar.classList.remove('hidden');
+    findInput.focus();
+    findInput.select();
+    // The BrowserView must move down/up with the bar — the ResizeObserver on
+    // center-col does not fire here (its outer size is unchanged), so publish
+    // the new layout explicitly.
+    if (onLayoutChange) onLayoutChange();
+  }
+
+  function _closeFindBar() {
+    if (!findBarOpen) return;
+    findBarOpen = false;
+    clearTimeout(_findInputTimer);
+    findBar.classList.add('hidden');
+    findCount.textContent = '';
+    kairon.findClose();
+    if (onLayoutChange) onLayoutChange();
+    // Hand keyboard focus back to the active page so page shortcuts work.
+    kairon.focusPage();
   }
 
   // ── STATUS BAR ─────────────────────────────────────────────
@@ -1259,6 +1347,7 @@ export function createUiController(kairon, store, onLayoutChange) {
     btnCollapseRail.addEventListener('click', () => {
       _setRailCollapsed(leftRail.dataset.collapsed !== 'true');
       setTimeout(_reanchorDownloadsPanel, 60);
+      setTimeout(_reanchorAppMenu, 60);
     });
 
     const btnHistory = document.getElementById('btn-open-history');
@@ -1295,6 +1384,7 @@ export function createUiController(kairon, store, onLayoutChange) {
 
     addressBar.addEventListener('focus', () => {
       _closeDownloadsPanel();
+      _closeAppMenu();
       requestAnimationFrame(() => addressBar.select());
       _showSuggestions(addressBar.value);
     });
@@ -1399,6 +1489,28 @@ export function createUiController(kairon, store, onLayoutChange) {
       }
     });
 
+    // ── APPLICATION MENU BUTTON ─────────────────────────────
+    // Clicking the button toggles; any click elsewhere in the chrome closes
+    // it (clicks on the menu itself land in the overlay window, and clicks on
+    // a webpage blur the overlay — main closes it there).
+    btnAppMenu?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _toggleAppMenu();
+    });
+
+    // Keep the button's pressed state in sync when the menu is opened or
+    // closed from the overlay side (Escape / item click / overlay blur).
+    kairon.onAppMenuShow(() => {
+      appMenuOpen = true;
+      btnAppMenu.classList.add('active');
+      btnAppMenu.setAttribute('aria-expanded', 'true');
+    });
+    kairon.onAppMenuHide(() => {
+      appMenuOpen = false;
+      btnAppMenu.classList.remove('active');
+      btnAppMenu.removeAttribute('aria-expanded');
+    });
+
     // ── DOWNLOADS BUTTON / PANEL ────────────────────────────
     btnDownloads?.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1407,14 +1519,22 @@ export function createUiController(kairon, store, onLayoutChange) {
 
     // Any click outside the Downloads button closes the panel. Clicks on the
     // panel itself land in the overlay window, and clicks on a webpage blur
-    // the overlay (main closes it there) — this covers the chrome area.
+    // the overlay (main closes it there) — this covers the chrome area. Same
+    // model for the app menu button.
     document.addEventListener('click', (e) => {
+      if (appMenuOpen) {
+        if (btnAppMenu && e.target && btnAppMenu.contains(e.target)) return;
+        _closeAppMenu();
+      }
       if (!downloadsPanelOpen) return;
       if (btnDownloads && e.target && btnDownloads.contains(e.target)) return;
       _closeDownloadsPanel();
     });
 
-    window.addEventListener('resize', _reanchorDownloadsPanel);
+    window.addEventListener('resize', () => {
+      _reanchorDownloadsPanel();
+      _reanchorAppMenu();
+    });
 
     kairon.onDownloadsUpdated((list) => {
       _updateDownloadsBadge(list);
@@ -1435,6 +1555,10 @@ export function createUiController(kairon, store, onLayoutChange) {
     });
 
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && appMenuOpen) {
+        _closeAppMenu();
+        return;
+      }
       if (e.key === 'Escape' && downloadsPanelOpen) {
         _closeDownloadsPanel();
         return;
@@ -1449,9 +1573,46 @@ export function createUiController(kairon, store, onLayoutChange) {
       if (mod && e.key === 'w') { e.preventDefault(); const tab = store.getActiveTab(); if (tab) kairon.closeTab(tab.id); return; }
       if (mod && e.key === 'r') { e.preventDefault(); kairon.reload(); return; }
       if (mod && e.key === 'h') { e.preventDefault(); kairon.navigate('kairon://history'); return; }
+      if (mod && e.key === 'j') { e.preventDefault(); kairon.navigate('kairon://downloads'); return; }
       if ((mod && e.key === '[') || (e.altKey && e.key === 'ArrowLeft'))  { e.preventDefault(); kairon.goBack();    return; }
       if ((mod && e.key === ']') || (e.altKey && e.key === 'ArrowRight')) { e.preventDefault(); kairon.goForward(); return; }
     });
+
+    // ── FIND BAR ────────────────────────────────────────────
+    // Opened from the app menu (Find) or Ctrl+F (handled in main, which
+    // broadcasts find-bar-show). Typing live-searches with a short debounce;
+    // Enter/Shift+Enter step matches; Escape closes.
+    if (findBar) {
+      findInput.addEventListener('input', () => {
+        clearTimeout(_findInputTimer);
+        _findInputTimer = setTimeout(() => {
+          const text = findInput.value;
+          if (text) kairon.findNext(text);
+          else kairon.findClose();
+        }, 120);
+      });
+      findInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (e.shiftKey) kairon.findPrev(findInput.value);
+          else kairon.findNext(findInput.value);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          _closeFindBar();
+        }
+      });
+      findPrevBtn?.addEventListener('click', () => kairon.findPrev(findInput.value));
+      findNextBtn?.addEventListener('click', () => kairon.findNext(findInput.value));
+      findCloseBtn?.addEventListener('click', () => _closeFindBar());
+
+      kairon.onFindBarShow(() => _openFindBar());
+      kairon.onFoundInPage((result) => {
+        if (!findBarOpen) return;
+        const matches = result && result.matches ? result.matches : 0;
+        const active = result && result.activeMatchOrdinal ? result.activeMatchOrdinal : 0;
+        findCount.textContent = matches ? `${active}/${matches}` : '0/0';
+      });
+    }
   }
 
   return {

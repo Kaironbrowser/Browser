@@ -222,6 +222,17 @@ let activeOverlaySuggestions = null;
 // Current anchor info for the floating downloads panel (or null when closed).
 let activeDownloadsPanel = null;
 let _lastDownloadsPanelBounds = null;
+// Current anchor info for the application menu (or null when closed).
+let activeAppMenu = null;
+let _lastAppMenuBounds = null;
+// True while the About dialog is shown in the overlay window.
+let activeAboutDialog = false;
+// True while a popup's (app menu / downloads panel) close animation is still
+// playing in the overlay. While set, the overlay window must not be moved or
+// resized: any setBounds would teleport the still-visible popup to a default
+// position for a frame. Cleared when the renderer confirms the popup is
+// hidden (popup-close-finished) or when a new popup is shown.
+let overlayClosePending = false;
 let _aggressiveWebRequestHandler = null;
 let _aggressiveActive = false;
 let _aggressiveBlockedCount = 0;
@@ -389,6 +400,12 @@ const tabSleepManager = new TabSleepManager({
 });
 
 const RAIL_WIDTH = 256; // 10px body padding + 236px left-rail width + 10px gap (matches CSS --rail-w: 236px)
+// Application menu overlay sizing — width must match #app-menu in overlay.html.
+// The height is an initial estimate; the overlay reports its exact natural
+// height after render (app-menu-measure) so the overlay never clips or pads
+// the menu regardless of font metrics.
+const APP_MENU_WIDTH = 284;
+const APP_MENU_HEIGHT = 690;
 const CHROME_HEIGHT = 80; // --chrome-h: 52 + --status-h: 28 (matches CSS variables)
 const SIDEBAR_WIDTH = 360;
 const MAX_URL_LENGTH = 2048;
@@ -1963,6 +1980,15 @@ function createTab(initialTarget = HOME_PAGE_URL) {
       return;
     }
 
+    // Ctrl+F — open the find bar while a webpage has focus.
+    if ((input.key === 'f' || input.key === 'F' || input.code === 'KeyF') && !input.alt && !input.shift) {
+      event.preventDefault();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('find-bar-show');
+      }
+      return;
+    }
+
     if (input.key === '=' || input.key === '+' || input.code === 'Equal' || input.code === 'NumpadAdd') {
       event.preventDefault();
       zoomInTab(tab);
@@ -2031,6 +2057,19 @@ function createTab(initialTarget = HOME_PAGE_URL) {
   webContents.on('did-fail-load', onDidFailLoad);
   webContents.on('before-input-event', onBeforeInputEvent);
 
+  // Find-in-page results for the active tab are forwarded to the chrome's find
+  // bar so the match counter stays live (results from background tabs ignored).
+  const onFoundInPage = (_, result) => {
+    if (!result || activeTabId !== id) return;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('found-in-page', {
+        activeMatchOrdinal: result.activeMatchOrdinal || 0,
+        matches: result.matches || 0,
+      });
+    }
+  };
+  webContents.on('found-in-page', onFoundInPage);
+
   // HTML/content fullscreen (website Fullscreen API): YouTube, <video>, etc.
   // Must be handled per-tab so the window fullscreen (F11) and the website's
   // fullscreen stay independent.
@@ -2051,6 +2090,7 @@ function createTab(initialTarget = HOME_PAGE_URL) {
     ['did-fail-load', onDidFailLoad],
     ['before-input-event', onBeforeInputEvent],
     ['page-favicon-updated', onPageFaviconUpdated],
+    ['found-in-page', onFoundInPage],
     ['enter-html-full-screen', onEnterHtmlFullScreen],
     ['leave-html-full-screen', onLeaveHtmlFullScreen],
   ];
@@ -2690,6 +2730,17 @@ function createWindow() {
       const activeTab = getActiveTab();
       if (activeTab) closeTab(activeTab.id);
     }
+    // Ctrl+F — open the find bar while browser chrome holds focus. Mirrors the
+    // per-tab handler so the shortcut works whether a webpage or the chrome
+    // holds keyboard focus.
+    if ((input.key === 'f' || input.key === 'F' || input.code === 'KeyF') && !input.alt && !input.shift &&
+        (process.platform === 'darwin' ? input.meta : input.control)) {
+      event.preventDefault();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('find-bar-show');
+      }
+      return;
+    }
   });
 
   // Belt-and-suspenders: some Electron/BrowserView builds surface the HTML
@@ -2726,10 +2777,12 @@ function createWindow() {
   mainWindow.on('resize', () => {
     updateBounds();
     updateDownloadsPanelBounds();
+    updateAppMenuBounds();
   });
   mainWindow.on('move', () => {
     updateOverlayBounds();
     updateDownloadsPanelBounds();
+    updateAppMenuBounds();
   });
 
   // When the window regains OS focus (Alt+Tab return, settings/overlay closing),
@@ -2902,6 +2955,11 @@ function updateOverlayBounds() {
     updateOverlaySuggestionBounds(activeOverlaySuggestions);
     return;
   }
+  // Never move the overlay while a popup close animation is still playing —
+  // resizing now would teleport the still-visible popup to a default position.
+  // The renderer signals popup-close-finished once the popup is hidden; only
+  // then are the default bounds restored (invisibly).
+  if (overlayClosePending) return;
   const bounds = mainWindow.getContentBounds();
   const prev = _lastOverlayBounds;
   if (!prev || bounds.x !== prev.x || bounds.y !== prev.y || bounds.width !== prev.width || bounds.height !== prev.height) {
@@ -3042,9 +3100,12 @@ function createOverlayWindow() {
   // Pass the persisted theme so the suggestions dropdown renders it before
   // first paint (same pattern as every other Kairon-owned page); live changes
   // arrive via settings-updated from emitSettingsState.
+  // The overlay starts HIDDEN: it is transparent and click-through when idle,
+  // and it is only revealed (at its final bounds) when a popup opens. Keeping
+  // it hidden while its bounds change guarantees a resize can never paint a
+  // stale popup frame at an intermediate position.
   overlayWindow.loadFile(path.join(__dirname, '../renderer/overlay.html'), { query: getThemeQuery() })
     .then(() => {
-      overlayWindow.show();
       overlayWindow.setIgnoreMouseEvents(true, { forward: true });
       updateOverlayBounds();
     })
@@ -3053,10 +3114,42 @@ function createOverlayWindow() {
     });
 
   // When the user clicks a webpage (or any other surface) while the downloads
-  // panel is open, the overlay loses focus — close the panel (idempotent).
+  // panel / app menu / about dialog is open, the overlay loses focus — close
+  // whatever is open (all idempotent).
+  //
+  // EXCEPTION: clicking a popup's OWN toggle button also moves OS focus away
+  // from the overlay before the renderer's click event fires (the blur-close
+  // would otherwise race the button's toggle: it closes the popup and resets
+  // the renderer's open state, so the click then sees "closed" and reopens it
+  // — the close-and-immediately-reopen bug). When the cursor is over the
+  // toggle button at blur time, the blur must NOT close the popup: the
+  // button's click handler checks the still-open state and performs the
+  // close itself. Every other surface (webpage, other chrome, other window)
+  // closes the popup here exactly as before.
   overlayWindow.on('blur', () => {
-    if (activeDownloadsPanel) hideDownloadsPanel();
+    if (activeDownloadsPanel && !isCursorOverRendererRect(activeDownloadsPanel.rect)) hideDownloadsPanel();
+    if (activeAppMenu && !isCursorOverRendererRect(activeAppMenu.rect)) hideAppMenu();
+    if (activeAboutDialog) hideAboutDialog();
   });
+}
+
+// True when the OS cursor is inside the given rect (renderer CSS pixels
+// relative to the main window's content bounds). The chrome is zoom-locked to
+// 1.0, so renderer CSS pixels equal DIPs — the same assumption the overlay
+// bounds math (updateDownloadsPanelBounds / updateAppMenuBounds) relies on.
+function isCursorOverRendererRect(rect) {
+  if (!rect || !mainWindow || mainWindow.isDestroyed()) return false;
+  try {
+    const p = screen.getCursorScreenPoint();
+    const b = mainWindow.getContentBounds();
+    const left = b.x + rect.left;
+    const top = b.y + rect.top;
+    const width = Number.isFinite(rect.width) && rect.width > 0 ? rect.width : 1;
+    const height = Number.isFinite(rect.height) && rect.height > 0 ? rect.height : 1;
+    return p.x >= left && p.x <= left + width && p.y >= top && p.y <= top + height;
+  } catch (e) {
+    return false;
+  }
 }
 
 // ── DOWNLOADS PANEL ───────────────────────────────────────────
@@ -3123,23 +3216,116 @@ function updateDownloadsPanelBounds() {
     overlayWindow.setBounds(bounds);
   }
 }
-
 function hideDownloadsPanel() {
+  const wasOpen = !!activeDownloadsPanel;
   activeDownloadsPanel = null;
   _lastDownloadsPanelBounds = null;
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
-  try {
-    overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-  } catch (e) { }
-  try {
-    if (overlayWindow.setFocusable) overlayWindow.setFocusable(false);
-  } catch (e) { }
+  try { overlayWindow.setIgnoreMouseEvents(true, { forward: true }); } catch (e) { }
+  try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(false); } catch (e) { }
   try { overlayWindow.webContents.send('downloads-panel-hide'); } catch (e) { }
   // Echo to the main renderer so the toolbar button's open state stays in sync
   // when the panel is closed from the overlay side (Escape / webpage click).
   if (mainWindow && !mainWindow.isDestroyed()) {
     try { mainWindow.webContents.send('downloads-panel-hide'); } catch (e) { }
   }
+  // Same rule as the app menu: never move the overlay while the panel is still
+  // visible (it hides in the renderer right after this message). Restoring the
+  // default bounds here would flash the panel at the far-left for a frame; the
+  // renderer signals popup-close-finished once it is hidden, then the default
+  // bounds are restored (invisibly).
+  if (wasOpen) overlayClosePending = true;
+}
+
+
+// ── APPLICATION MENU ─────────────────────────────────────────
+// The application menu is rendered by the existing overlay window (the same
+// infrastructure as the omnibox suggestions and the downloads panel) so it
+// always paints above BrowserView content. The main renderer anchors it by
+// sending the menu button's rect (renderer CSS pixels); main converts it to
+// screen bounds, sizes the overlay to exactly the menu rect, and forwards the
+// current browser state so the menu can enable/disable actions (Back/Forward,
+// zoom, fullscreen) to match the live browser.
+
+// Snapshot of the current browser state the menu renders against.
+function getAppMenuState() {
+  const tab = getActiveTab();
+  let canGoBack = false;
+  let canGoForward = false;
+  let zoomFactor = 1.0;
+  if (tab && tab.view && tab.view.webContents && !tab.view.webContents.isDestroyed()) {
+    try { canGoBack = tab.view.webContents.navigationHistory.canGoBack(); } catch (e) { }
+    try { canGoForward = tab.view.webContents.navigationHistory.canGoForward(); } catch (e) { }
+    zoomFactor = typeof tab.zoomFactor === 'number' ? tab.zoomFactor : 1.0;
+  }
+  let isFullscreen = false;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { isFullscreen = mainWindow.isFullScreen(); } catch (e) { }
+  }
+  return { canGoBack, canGoForward, zoomFactor, isFullscreen };
+}
+
+function updateAppMenuBounds() {
+  if (!mainWindow || mainWindow.isDestroyed() || !overlayWindow || overlayWindow.isDestroyed()) return;
+  if (!activeAppMenu) return;
+  const rect = activeAppMenu.rect;
+  if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.bottom)) return;
+
+  const mainBounds = mainWindow.getContentBounds();
+  const [currentW] = mainWindow.getContentSize();
+  const GAP = 6;
+  const PAD = 8;
+
+  // Left-align the menu with the button's left edge; clamp inside the window.
+  let left = Math.round(mainBounds.x + rect.left);
+  left = Math.max(mainBounds.x + PAD, Math.min(left, mainBounds.x + Math.max(PAD, currentW - APP_MENU_WIDTH - PAD)));
+  const top = Math.round(mainBounds.y + rect.bottom + GAP);
+  // Clamp height to the window; the menu scrolls internally when clamped.
+  const maxH = Math.max(120, mainBounds.y + mainBounds.height - top - PAD);
+  const desiredH = activeAppMenu.measuredHeight || APP_MENU_HEIGHT;
+
+  const bounds = { x: left, y: top, width: APP_MENU_WIDTH, height: Math.min(desiredH, maxH) };
+  const prev = _lastAppMenuBounds;
+  if (!prev || bounds.x !== prev.x || bounds.y !== prev.y || bounds.width !== prev.width || bounds.height !== prev.height) {
+    _lastAppMenuBounds = bounds;
+    overlayWindow.setBounds(bounds);
+  }
+}
+
+function hideAppMenu() {
+  if (!activeAppMenu) return;
+  activeAppMenu = null;
+  _lastAppMenuBounds = null;
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  try { overlayWindow.setIgnoreMouseEvents(true, { forward: true }); } catch (e) { }
+  try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(false); } catch (e) { }
+  try { overlayWindow.webContents.send('app-menu-hide'); } catch (e) { }
+  // Echo to the main renderer so the menu button's open state stays in sync
+  // when the menu is closed from the overlay side (Escape / item click /
+  // webpage click via overlay blur).
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.webContents.send('app-menu-hide'); } catch (e) { }
+  }
+  // Keep the overlay window exactly where it is while the menu's close
+  // animation plays. Restoring the default full-window bounds here would
+  // teleport the still-visible menu to the far-left for a frame; the renderer
+  // signals popup-close-finished once the animation completes and only then
+  // are the default bounds restored (invisibly).
+  overlayClosePending = true;
+}
+
+// The About dialog is a centered modal rendered by the overlay at full-window
+// size (the overlay covers the whole window when no panel is open).
+function hideAboutDialog() {
+  if (!activeAboutDialog) return;
+  activeAboutDialog = false;
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  try { overlayWindow.setIgnoreMouseEvents(true, { forward: true }); } catch (e) { }
+  try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(false); } catch (e) { }
+  try { overlayWindow.webContents.send('about-hide'); } catch (e) { }
+  // Hide before restoring default bounds so the resize never paints a stale
+  // About-dialog frame at an intermediate position.
+  try { overlayWindow.hide(); } catch (e) { }
   _lastOverlayBounds = null;
   updateOverlayBounds();
 }
@@ -3278,12 +3464,17 @@ const _isSettingsTrusted = (event) => isTrustedIpcSender(event) || (isTabBrowser
 ipcMain.on('show-overlay-suggestions', (event, payload) => {
   if (!isTrustedIpcSender(event)) return;
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  overlayClosePending = false;
 
   const { rect, items } = payload;
   let overlayPayload = payload;
   if (rect && items) {
     activeOverlaySuggestions = payload;
+    // The overlay is hidden whenever its geometry changes and revealed only
+    // after being positioned, so no stale frame can paint mid-resize.
+    try { overlayWindow.hide(); } catch (e) { }
     overlayPayload = updateOverlaySuggestionBounds(payload) || payload;
+    try { overlayWindow.show(); } catch (e) { }
     overlayWindow.setIgnoreMouseEvents(false);
   }
 
@@ -3296,6 +3487,9 @@ ipcMain.on('hide-overlay-suggestions', (event) => {
   activeOverlaySuggestions = null;
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
   overlayWindow.webContents.send('overlay-hide');
+  // Hide the window before restoring default bounds so the resize never paints
+  // a stale suggestion frame at an intermediate (far-left) position.
+  try { overlayWindow.hide(); } catch (e) { }
   // Invalidate both caches so the overlay is definitely resized back to full
   // window bounds (and next show re-applies the suggestion bounds).
   _lastOverlayBounds = null;
@@ -3318,6 +3512,7 @@ ipcMain.on('navigate-to-suggestion', (event, url) => {
     activeOverlaySuggestions = null;
     overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     overlayWindow.webContents.send('overlay-hide');
+    try { overlayWindow.hide(); } catch (e) { }
     updateOverlayBounds();
   }
   navigateTabToTarget(tab, target);
@@ -4134,24 +4329,208 @@ app.whenReady().then(async () => {
     const rect = payload && payload.rect && typeof payload.rect === 'object' ? payload.rect : null;
     if (!rect || !Number.isFinite(rect.right) || !Number.isFinite(rect.bottom)) return;
 
-    // The panel and the omnibox suggestions share the overlay — never both.
+    // The panel, the omnibox suggestions, and the app menu share the overlay
+    // — never more than one at a time. An explicit show always repositions
+    // the overlay, so any pending close freeze ends.
+    overlayClosePending = false;
     activeOverlaySuggestions = null;
     _lastOverlaySuggestionBounds = null;
+    activeAppMenu = null;
+    _lastAppMenuBounds = null;
     try { overlayWindow.webContents.send('overlay-hide'); } catch (e) { }
+    try { overlayWindow.webContents.send('app-menu-hide'); } catch (e) { }
+    try { mainWindow.webContents.send('app-menu-hide'); } catch (e) { }
 
     activeDownloadsPanel = { rect, at: Date.now() };
+    // Hide → position → reveal (same rule as the app menu).
+    try { overlayWindow.hide(); } catch (e) { }
+    updateDownloadsPanelBounds();
+    try { overlayWindow.show(); } catch (e) { }
     try { overlayWindow.setIgnoreMouseEvents(false); } catch (e) { }
     try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(true); } catch (e) { }
     try { overlayWindow.webContents.send('downloads-panel-show', { rect }); } catch (e) { }
     // Echo to the main renderer so the toolbar button's open state stays in sync.
     try { mainWindow.webContents.send('downloads-panel-show', { rect }); } catch (e) { }
-    updateDownloadsPanelBounds();
     try { overlayWindow.focus(); } catch (e) { }
   });
 
   ipcMain.on('hide-downloads-panel', (event) => {
     if (!isTrustedIpcSender(event)) return;
     hideDownloadsPanel();
+  });
+
+  // ── APP MENU IPC ─────────────────────────────────────────
+  // The main renderer anchors the menu by sending the menu button's rect; main
+  // sizes the overlay to the menu, computes the current browser state, and
+  // tells the overlay to render it.
+  ipcMain.on('show-app-menu', (event, payload) => {
+    if (!isTrustedIpcSender(event)) return;
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    const rect = payload && payload.rect && typeof payload.rect === 'object' ? payload.rect : null;
+    if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.bottom)) return;
+
+    // The menu, the omnibox suggestions, the downloads panel, and the About
+    // dialog share the overlay — never more than one at a time. An explicit
+    // show always repositions the overlay, so any pending close freeze ends.
+    overlayClosePending = false;
+    activeOverlaySuggestions = null;
+    _lastOverlaySuggestionBounds = null;
+    activeAboutDialog = false;
+    try { overlayWindow.webContents.send('overlay-hide'); } catch (e) { }
+    try { overlayWindow.webContents.send('about-hide'); } catch (e) { }
+
+    activeAppMenu = { rect, at: Date.now() };
+    // Hide → position → reveal: the overlay's geometry only ever changes while
+    // the window is hidden, so a resize can never flash stale content at an
+    // intermediate position.
+    try { overlayWindow.hide(); } catch (e) { }
+    updateAppMenuBounds();
+    try { overlayWindow.show(); } catch (e) { }
+    try { overlayWindow.setIgnoreMouseEvents(false); } catch (e) { }
+    try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(true); } catch (e) { }
+    try { overlayWindow.webContents.send('app-menu-show', { rect, state: getAppMenuState() }); } catch (e) { }
+    // Echo to the main renderer so the menu button's open state stays in sync.
+    try { mainWindow.webContents.send('app-menu-show', { rect }); } catch (e) { }
+    try { overlayWindow.focus(); } catch (e) { }
+  });
+
+  ipcMain.on('hide-app-menu', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    hideAppMenu();
+  });
+
+  // The overlay renderer reports that a popup's close animation finished (or
+  // the popup was hidden instantly). Only now is it safe to restore the
+  // overlay's default full-window bounds — resizing earlier would have
+  // teleported the still-visible popup. Skipped entirely when a new popup is
+  // already showing (its own bounds win).
+  ipcMain.on('popup-close-finished', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    overlayClosePending = false;
+    if (activeAppMenu || activeDownloadsPanel || activeAboutDialog || activeOverlaySuggestions) return;
+    // The popup is fully hidden. Hide the overlay window itself before
+    // restoring its default bounds, so the resize can never paint a stale
+    // popup frame at an intermediate (far-left) position. The next popup
+    // open repositions and reveals the window.
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      try { overlayWindow.hide(); } catch (e) { }
+    }
+    _lastOverlayBounds = null;
+    updateOverlayBounds();
+  });
+
+  // The overlay measures the menu's exact natural height after render and
+  // reports it so the overlay is sized to fit — never clips, never pads.
+  ipcMain.on('app-menu-measure', (event, payload) => {
+    if (!isTrustedIpcSender(event)) return;
+    if (!activeAppMenu) return;
+    const height = payload && Number.isFinite(payload.height) ? Math.round(payload.height) : 0;
+    if (height > 0 && height !== activeAppMenu.measuredHeight) {
+      activeAppMenu.measuredHeight = height;
+      updateAppMenuBounds();
+    }
+  });
+
+  // ── ABOUT DIALOG IPC ──────────────────────────────────────
+  ipcMain.on('show-about', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    overlayClosePending = false; // the About modal is full-window; free the freeze
+    activeAppMenu = null;
+    _lastAppMenuBounds = null;
+    activeOverlaySuggestions = null;
+    _lastOverlaySuggestionBounds = null;
+    try { overlayWindow.webContents.send('overlay-hide'); } catch (e) { }
+    try { overlayWindow.webContents.send('app-menu-hide'); } catch (e) { }
+    try { mainWindow.webContents.send('app-menu-hide'); } catch (e) { }
+
+    activeAboutDialog = true;
+    // Hide → position (full window) → reveal: same rule as every popup.
+    try { overlayWindow.hide(); } catch (e) { }
+    _lastOverlayBounds = null;
+    updateOverlayBounds(); // full-window overlay for the centered modal
+    try { overlayWindow.show(); } catch (e) { }
+    try { overlayWindow.setIgnoreMouseEvents(false); } catch (e) { }
+    try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(true); } catch (e) { }
+    let version = '1.0.0';
+    try { version = app.getVersion(); } catch (e) { }
+    try { overlayWindow.webContents.send('about-show', { version }); } catch (e) { }
+    try { overlayWindow.focus(); } catch (e) { }
+  });
+
+  ipcMain.on('hide-about', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    hideAboutDialog();
+  });
+
+  // ── MENU ACTIONS ──────────────────────────────────────────
+  // New Incognito Window — reuses the existing Incognito browser.
+  ipcMain.on('open-incognito-window', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    openIncognitoWindow();
+  });
+
+  // Fullscreen — reuses the existing F11 toggle (also exits content fullscreen).
+  ipcMain.on('toggle-fullscreen', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    toggleBrowserFullscreen();
+  });
+
+  // Exit — flush session state and quit, mirroring the restart path.
+  ipcMain.on('app-exit', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    hideAppMenu();
+    hideAboutDialog();
+    setTimeout(() => {
+      try { flushSessionPersist(); } catch (e) { }
+      try { tabSleepManager.stop(); } catch (e) { }
+      app.quit();
+    }, 120);
+  });
+
+  // Authoritative current zoom factor so the menu's zoom display stays exact.
+  ipcMain.handle('zoom-get', (event) => {
+    if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    const tab = getActiveTab();
+    return { zoomFactor: tab && typeof tab.zoomFactor === 'number' ? tab.zoomFactor : 1.0 };
+  });
+
+  // ── FIND BAR IPC ──────────────────────────────────────────
+  // The find bar lives in the main renderer (browser chrome). The app menu
+  // (overlay renderer) and Ctrl+F request it through main, which forwards to
+  // the chrome; find results flow back the same way.
+  ipcMain.on('show-find-bar', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('find-bar-show');
+    }
+  });
+
+  ipcMain.on('find-next', (event, text) => {
+    if (!isTrustedIpcSender(event)) return;
+    const tab = getActiveTab();
+    if (!tab || typeof text !== 'string' || !text) return;
+    try { tab.view.webContents.findInPage(text, { forward: true, findNext: true }); } catch (e) { }
+  });
+
+  ipcMain.on('find-prev', (event, text) => {
+    if (!isTrustedIpcSender(event)) return;
+    const tab = getActiveTab();
+    if (!tab || typeof text !== 'string' || !text) return;
+    try { tab.view.webContents.findInPage(text, { forward: false, findNext: true }); } catch (e) { }
+  });
+
+  ipcMain.on('find-close', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    const tab = getActiveTab();
+    if (!tab) return;
+    try { tab.view.webContents.stopFindInPage('clearSelection'); } catch (e) { }
+  });
+
+  // Hand keyboard focus back to the active page (find bar close, etc.).
+  ipcMain.on('focus-page', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    focusActiveTabWebContents();
   });
 
   // Expose a diagnostic endpoint for adblock state (trusted renderer only)

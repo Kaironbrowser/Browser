@@ -345,9 +345,13 @@ function showDownloadsPanel() {
 }
 
 function hideDownloadsPanel() {
+  const wasVisible = downloadsPanelVisible;
   downloadsPanelVisible = false;
   closeDownloadsMenu();
   downloadsPanel.hidden = true;
+  // Tell main the popup is fully hidden so it can restore the overlay's
+  // default bounds (never while the panel is still on screen).
+  if (wasVisible) window.kairon.notifyPopupClosed();
 }
 
 window.kairon.on('downloads-panel-show', () => showDownloadsPanel());
@@ -419,8 +423,12 @@ downloadsList.addEventListener('keydown', (e) => {
   }
 });
 
+// Escape closes whatever is open: the About dialog, then the app menu, then
+// the downloads panel (its nested menu first, then the panel itself).
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (aboutVisible) { window.kairon.hideAbout(); return; }
+  if (appMenuVisible) { window.kairon.hideAppMenu(); return; }
   if (!downloadsPanelVisible) return;
   if (!downloadsMenu.hidden) {
     closeDownloadsMenu();
@@ -429,3 +437,197 @@ document.addEventListener('keydown', (e) => {
   }
   window.kairon.hideDownloadsPanel();
 });
+
+// ══════════════════════════════════════════════════════════════
+//  APPLICATION MENU — rendered by the overlay window so it always
+//  paints above BrowserView content. Anchored by the main renderer.
+// ══════════════════════════════════════════════════════════════
+
+const appMenu = document.getElementById('app-menu');
+const amZoomValue = document.getElementById('am-zoom-value');
+const amFullscreenLabel = document.getElementById('am-fullscreen-label');
+
+const REDUCED_MOTION = typeof window.matchMedia === 'function' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+let appMenuVisible = false;
+let _appMenuHideTimer = null;
+
+function showAppMenu(payload) {
+  if (!appMenu) return;
+  const state = (payload && payload.state) || {};
+
+  // Adapt available actions to the live browser state.
+  const backItem = appMenu.querySelector('[data-action="back"]');
+  const fwdItem = appMenu.querySelector('[data-action="forward"]');
+  if (backItem) backItem.disabled = !state.canGoBack;
+  if (fwdItem) fwdItem.disabled = !state.canGoForward;
+  if (amZoomValue) {
+    const factor = typeof state.zoomFactor === 'number' ? state.zoomFactor : 1;
+    amZoomValue.textContent = `${Math.round(factor * 100)}%`;
+  }
+  if (amFullscreenLabel) {
+    amFullscreenLabel.textContent = state.isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen';
+  }
+
+  clearTimeout(_appMenuHideTimer);
+  appMenu.classList.remove('am-closing');
+  appMenu.hidden = false;
+  void appMenu.offsetHeight; // restart the enter animation on every open
+  appMenuVisible = true;
+
+  // Report the exact natural height so main can size the overlay to fit the
+  // menu precisely (initial estimate may differ by a few px from font metrics).
+  requestAnimationFrame(() => {
+    if (!appMenuVisible) return;
+    const prevHeight = appMenu.style.height;
+    appMenu.style.height = 'auto';
+    const h = appMenu.offsetHeight;
+    appMenu.style.height = prevHeight || '';
+    if (h > 0) window.kairon.sendAppMenuMeasure({ height: h });
+  });
+
+  const first = appMenu.querySelector('.am-item:not([disabled])');
+  if (first) first.focus();
+}
+
+function hideAppMenu() {
+  if (!appMenuVisible) return;
+  appMenuVisible = false;
+  clearTimeout(_appMenuHideTimer);
+  const finishClose = () => {
+    appMenu.hidden = true;
+    // Tell main the popup is fully hidden (animation finished) so it can
+    // restore the overlay's default bounds without a visible teleport.
+    window.kairon.notifyPopupClosed();
+  };
+  if (REDUCED_MOTION) { finishClose(); return; }
+  appMenu.classList.add('am-closing');
+  _appMenuHideTimer = setTimeout(finishClose, 130);
+}
+
+window.kairon.onAppMenuShow((payload) => showAppMenu(payload));
+window.kairon.onAppMenuHide(() => hideAppMenu());
+
+// ── ITEM ACTIONS ────────────────────────────────────────────
+
+function runAppMenuCommand(action) {
+  switch (action) {
+    case 'new-tab':       window.kairon.createTab('kairon://home'); break;
+    case 'new-incognito': window.kairon.openIncognitoWindow(); break;
+    case 'back':          window.kairon.goBack(); break;
+    case 'forward':       window.kairon.goForward(); break;
+    case 'reload':        window.kairon.reload(); break;
+    case 'find':          window.kairon.showFindBar(); break;
+    case 'history':       window.kairon.navigate('kairon://history'); break;
+    case 'downloads':     window.kairon.navigate('kairon://downloads'); break;
+    case 'settings':      window.kairon.navigate('kairon://settings'); break;
+    case 'exit':          window.kairon.exitApp(); break;
+    default: break;
+  }
+}
+
+function refreshMenuZoom() {
+  window.kairon.getZoom().then((res) => {
+    if (amZoomValue && res && typeof res.zoomFactor === 'number') {
+      amZoomValue.textContent = `${Math.round(res.zoomFactor * 100)}%`;
+    }
+  }).catch(() => {});
+}
+
+function handleAppMenuAction(action) {
+  switch (action) {
+    case 'zoom-in':
+      window.kairon.zoomIn();
+      refreshMenuZoom();
+      break; // the menu stays open while zooming
+    case 'zoom-out':
+      window.kairon.zoomOut();
+      refreshMenuZoom();
+      break;
+    case 'zoom-reset':
+      window.kairon.resetZoom();
+      refreshMenuZoom();
+      break;
+    case 'fullscreen':
+      hideAppMenu();
+      window.kairon.toggleFullscreen();
+      break;
+    case 'about':
+      hideAppMenu();
+      window.kairon.showAbout();
+      break;
+    default:
+      hideAppMenu();
+      runAppMenuCommand(action);
+  }
+}
+
+appMenu.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('button[data-action]');
+  if (!btn || btn.disabled) return;
+  const action = btn.dataset.action;
+  if (!action) return;
+  e.stopPropagation();
+  handleAppMenuAction(action);
+});
+
+// Arrow / Home / End navigation between enabled items; Escape closes.
+appMenu.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    window.kairon.hideAppMenu();
+    return;
+  }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+  const items = Array.from(appMenu.querySelectorAll('.am-item:not([disabled])'));
+  if (!items.length) return;
+  const idx = items.indexOf(document.activeElement);
+  let next = -1;
+  if (e.key === 'ArrowDown') next = idx + 1;
+  else if (e.key === 'ArrowUp') next = idx - 1;
+  else if (e.key === 'Home') next = 0;
+  else if (e.key === 'End') next = items.length - 1;
+  if (next < 0) next = items.length - 1;
+  if (next >= items.length) next = 0;
+  e.preventDefault();
+  items[next].focus();
+});
+
+// ══════════════════════════════════════════════════════════════
+//  ABOUT DIALOG — centered modal at full-window overlay size.
+// ══════════════════════════════════════════════════════════════
+
+const aboutDialog = document.getElementById('about-dialog');
+const aboutBackdrop = document.getElementById('about-backdrop');
+const aboutCloseBtn = document.getElementById('about-close');
+const aboutVersion = document.getElementById('about-version');
+let aboutVisible = false;
+
+function showAboutDialog(payload) {
+  if (!aboutDialog) return;
+  if (payload && payload.version && aboutVersion) {
+    aboutVersion.textContent = `Version ${payload.version}`;
+  }
+  // The menu may still be mid-close-animation; force it out of the way.
+  clearTimeout(_appMenuHideTimer);
+  appMenu.hidden = true;
+  appMenuVisible = false;
+  aboutVisible = true;
+  aboutDialog.hidden = false;
+  void aboutDialog.offsetHeight; // restart the enter animation
+  if (aboutCloseBtn) aboutCloseBtn.focus();
+}
+
+function hideAboutDialog() {
+  if (!aboutVisible) return;
+  aboutVisible = false;
+  aboutDialog.hidden = true;
+}
+
+window.kairon.on('about-show', (payload) => showAboutDialog(payload));
+window.kairon.on('about-hide', () => hideAboutDialog());
+
+if (aboutBackdrop) aboutBackdrop.addEventListener('click', () => window.kairon.hideAbout());
+if (aboutCloseBtn) aboutCloseBtn.addEventListener('click', () => window.kairon.hideAbout());

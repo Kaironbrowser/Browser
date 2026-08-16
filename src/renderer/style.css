@@ -865,6 +865,69 @@
    }
    #downloads-badge.hidden { display: none; }
 
+   /* Application menu button (top-left of the chrome) — the active state
+      mirrors the Downloads button so an open menu reads as a pressed button. */
+   .app-menu-btn.active {
+     background: var(--surface-2);
+     border-color: var(--border-0);
+     color: var(--text-primary);
+   }
+   /* The Incognito window reuses this chrome but has no app menu. */
+   body[data-incognito] #btn-app-menu { display: none; }
+
+   /* ── FIND BAR ────────────────────────────────────────────── */
+   #find-bar {
+     height: 36px;
+     flex-shrink: 0;
+     display: flex;
+     align-items: center;
+     gap: var(--s-2);
+     padding: 0 var(--s-4);
+     border-bottom: 1px solid var(--border-0);
+     background: var(--bg-chrome);
+     color: var(--text-secondary);
+   }
+   #find-bar.hidden { display: none; }
+   body[data-incognito] #find-bar { display: none; }
+   #find-bar .find-icon { flex-shrink: 0; opacity: 0.55; }
+   #find-input {
+     flex: 1;
+     max-width: 340px;
+     height: 24px;
+     padding: 0 8px;
+     border: 1px solid var(--border-0);
+     border-radius: var(--r-sm);
+     background: var(--surface-1);
+     color: var(--text-primary);
+     font-family: inherit;
+     font-size: 12px;
+     outline: none;
+     transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+   }
+   #find-input:focus { border-color: var(--border-1); background: var(--surface-2); }
+   #find-count {
+     min-width: 46px;
+     font-family: var(--font-mono);
+     font-size: 11px;
+     text-align: center;
+     user-select: none;
+   }
+   #find-bar button {
+     width: 26px;
+     height: 24px;
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+     border: 1px solid transparent;
+     border-radius: var(--r-sm);
+     background: transparent;
+     color: var(--text-tertiary);
+     cursor: pointer;
+     transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+   }
+   #find-bar button:hover { background: var(--surface-2); color: var(--text-primary); }
+   #find-bar button:active { transform: scale(0.92); }
+
    /* Incognito state indicator — hidden in the normal browser, shown only in
       the Incognito window (body[data-incognito], set by ui.js when the chrome
       loads with ?incognito=1). Same surface language as the rest of the chrome. */

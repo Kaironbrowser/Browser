@@ -106,6 +106,20 @@ const SEND_CHANNELS = new Set([
   'chrome-ui-focus',
   'show-downloads-panel',
   'hide-downloads-panel',
+  'show-app-menu',
+  'hide-app-menu',
+  'app-menu-measure',
+  'popup-close-finished',
+  'toggle-fullscreen',
+  'open-incognito-window',
+  'app-exit',
+  'show-find-bar',
+  'find-next',
+  'find-prev',
+  'find-close',
+  'show-about',
+  'hide-about',
+  'focus-page',
 ]);
 
 const INVOKE_CHANNELS = new Set([
@@ -137,6 +151,7 @@ const INVOKE_CHANNELS = new Set([
   'downloads-get-location',
   'downloads-set-location',
   'downloads-reset-location',
+  'zoom-get',
 ]);
 const RECEIVE_CHANNELS = new Set([
   'url-changed',
@@ -153,6 +168,12 @@ const RECEIVE_CHANNELS = new Set([
   'downloads-updated',
   'downloads-panel-show',
   'downloads-panel-hide',
+  'app-menu-show',
+  'app-menu-hide',
+  'find-bar-show',
+  'found-in-page',
+  'about-show',
+  'about-hide',
 ]);
 
 // Minimal, safe scriptlets executed at document_start to help neutralize
@@ -363,6 +384,37 @@ const api = {
   hideDownloadsPanel: () => send('hide-downloads-panel'),
   onDownloadsPanelShow: (cb) => on('downloads-panel-show', cb),
   onDownloadsPanelHide: (cb) => on('downloads-panel-hide', cb),
+
+  // ── Application menu (rendered by the existing overlay window) ──
+  // The menu button's rect anchors it; main sizes the overlay and forwards the
+  // current browser state so actions enable/disable correctly.
+  showAppMenu: (payload) => send('show-app-menu', payload),
+  hideAppMenu: () => send('hide-app-menu'),
+  sendAppMenuMeasure: (payload) => send('app-menu-measure', payload),
+  // Overlay-only: signals that a popup's close animation finished so main can
+  // safely restore the overlay's default bounds without a visible teleport.
+  notifyPopupClosed: () => send('popup-close-finished'),
+  onAppMenuShow: (cb) => on('app-menu-show', cb),
+  onAppMenuHide: (cb) => on('app-menu-hide', cb),
+
+  // ── Menu actions ─────────────────────────────────────────
+  toggleFullscreen: () => send('toggle-fullscreen'),
+  openIncognitoWindow: () => send('open-incognito-window'),
+  exitApp: () => send('app-exit'),
+  getZoom: () => invoke('zoom-get'),
+  showAbout: () => send('show-about'),
+  hideAbout: () => send('hide-about'),
+
+  // ── Find bar (browser chrome) ────────────────────────────
+  // The find bar lives in the main renderer; the menu (overlay) and Ctrl+F
+  // request it through main. Results stream back to the chrome.
+  showFindBar: () => send('show-find-bar'),
+  findNext: (text) => send('find-next', text),
+  findPrev: (text) => send('find-prev', text),
+  findClose: () => send('find-close'),
+  onFindBarShow: (cb) => on('find-bar-show', cb),
+  onFoundInPage: (cb) => on('found-in-page', cb),
+  focusPage: () => send('focus-page'),
 };
 
 contextBridge.exposeInMainWorld('kairon', Object.freeze(api));
