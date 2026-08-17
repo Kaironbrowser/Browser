@@ -123,19 +123,88 @@ function installTelemetryRequestBlocker(targetSession) {
   const registerDispatcher = () => {
     const filter = downstreamListener ? { urls: ['*://*/*'] } : { urls: TELEMETRY_URL_PATTERNS };
     registerNativeListener(filter, (details, callback) => {
-      const blockedDomain = getBlockedTelemetryDomain(details.url);
-      if (blockedDomain) {
-        if (DEBUG) console.info('[telemetry] blocked', blockedDomain);
-        callback({ cancel: true });
-        return;
-      }
+      try {
+        // Malformed events must never reach the blocker: allow them.
+        if (!details || !details.url) {
+          callback({});
+          return;
+        }
+        // SAFETY: the ad blocker must never block, redirect, or stall a
+        // main-frame/document navigation. Allow the document unconditionally
+        // (fail open) before any blocker decision is consulted.
+        if (details.resourceType === 'mainFrame' || details.resourceType === 'document') {
+          callback({});
+          return;
+        }
 
-      if (downstreamListener) {
-        downstreamListener(details, callback);
-        return;
-      }
+        const blockedDomain = getBlockedTelemetryDomain(details.url);
+        if (blockedDomain) {
+          if (DEBUG) console.info('[telemetry] blocked', blockedDomain);
+          callback({ cancel: true });
+          return;
+        }
 
-      callback({});
+        if (downstreamListener) {
+          // Only http(s)/ws(s) requests can ever match a blocking rule — skip
+          // the expensive engine match entirely for internal schemes.
+          let scheme = '';
+          try { scheme = String(details.url).split(':')[0].toLowerCase(); } catch (e) { }
+          if (scheme !== 'http' && scheme !== 'https' && scheme !== 'ws' && scheme !== 'wss') {
+            callback({});
+            return;
+          }
+
+          // Decision cache: the blocker's verdict is deterministic for a given
+          // (url, type, referrer-host) triple and its rule set version, so
+          // repeated requests skip the engine match entirely. This is the main
+          // fix for the per-request CPU cost of matching every request
+          // synchronously on the main process.
+          const cacheKey = makeNativeCacheKey(details);
+          if (cacheKey) {
+            const cached = _nativeDecisionCache.get(cacheKey);
+            if (cached !== undefined && cached && typeof cached === 'object' && 'blocked' in cached) {
+              if (cached.blocked) {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send('adblock-event', {
+                    url: details.url,
+                    blocked: true,
+                    rule: cached.rule || '',
+                    resourceType: details.resourceType,
+                    domain: cached.domain || '',
+                  });
+                }
+              }
+              if (cached.cancel) callback({ cancel: true });
+              else if (cached.redirectURL) callback({ redirectURL: cached.redirectURL });
+              else callback({});
+              return;
+            }
+          }
+
+          downstreamListener(details, (result) => {
+            if (cacheKey && result) {
+              try {
+                _nativeDecisionCache.set(cacheKey, {
+                  blocked: !!result.cancel,
+                  cancel: !!result.cancel,
+                  redirectURL: result.redirectURL || '',
+                  rule: result.cancel ? 'native' : '',
+                  domain: (() => { try { return new URL(details.url).hostname || ''; } catch (e) { return ''; } })(),
+                }, result.cancel ? 30 * 60 * 1000 : 0);
+              } catch (e) { }
+            }
+            callback(result);
+          });
+          return;
+        }
+
+        callback({});
+      } catch (e) {
+        // FAIL OPEN: an internal blocker error must never leave the request
+        // hanging (callback never called) or cancel a navigation.
+        logError('adblock-dispatcher-error', e);
+        try { callback({}); } catch (e2) { }
+      }
     });
   };
 
@@ -144,6 +213,39 @@ function installTelemetryRequestBlocker(targetSession) {
   targetWebRequest.onBeforeRequest = (filter, listener) => {
     downstreamListener = typeof listener === 'function' ? listener : null;
     registerDispatcher();
+  };
+
+  // SAFETY: the ad blocker (cliqz engine) also registers an onHeadersReceived
+  // listener that injects CSP headers into main-frame/subframe responses from
+  // filter-list $csp rules. An injected CSP on the document itself can break a
+  // legitimate page's scripts, so the blocker must never be allowed to modify
+  // main-frame/document responses. (Subframe/iframe responses are untouched.)
+  const registerNativeHeadersListener = targetWebRequest.onHeadersReceived.bind(targetWebRequest);
+  let downstreamHeadersListener = null;
+  targetWebRequest.onHeadersReceived = (filter, listener) => {
+    downstreamHeadersListener = typeof listener === 'function' ? listener : null;
+    registerNativeHeadersListener(filter, (details, callback) => {
+      try {
+        if (downstreamHeadersListener) {
+          const isDocument = !!(details && (details.resourceType === 'mainFrame' || details.resourceType === 'document'));
+          downstreamHeadersListener(details, (result) => {
+            // Never let the blocker modify or cancel a main-frame/document
+            // response (e.g. filter-list $csp rules that would inject a CSP
+            // into the page and break its scripts) — fail open for documents.
+            if (isDocument) {
+              callback({});
+              return;
+            }
+            callback(result);
+          });
+          return;
+        }
+        callback({});
+      } catch (e) {
+        logError('adblock-headers-error', e);
+        try { callback({}); } catch (e2) { }
+      }
+    });
   };
 
   registerDispatcher();
@@ -218,6 +320,12 @@ let downloadManager = null;
 
 let mainWindow = null;
 let overlayWindow = null;
+// Standalone "Open Link in New Window" windows (context-menu action). They are
+// tracked here so they can be closed when the main browser window closes: they
+// are frameless with no chrome and no close button, and an unclosed one would
+// keep `window-all-closed` from ever firing — leaving the app running in the
+// background (Task Manager) after the browser UI is gone.
+const standaloneWindows = new Set();
 let activeOverlaySuggestions = null;
 // Current anchor info for the floating downloads panel (or null when closed).
 let activeDownloadsPanel = null;
@@ -332,6 +440,33 @@ function normalizeUrlForCache(url) {
   }
 }
 
+// Rule-set version for the native blocker decision cache. Bumped whenever the
+// blocker is torn down/recreated (reconfigureAdblocker) so cached verdicts
+// from the previous engine/rules are never replayed.
+let _nativeRuleVersion = 0;
+
+// Deterministic decision key for the native/fallback blocker cache. A
+// blocker's verdict can depend on the request URL, its resource type, and the
+// page that initiated it (referrer), plus the active rule-set version — all
+// captured here so a cached verdict is always valid for the current rules.
+function makeNativeCacheKey(details) {
+  try {
+    const urlObj = new URL(details.url);
+    let refHost = '';
+    try {
+      if (details.referrer) refHost = new URL(String(details.referrer)).hostname;
+    } catch (e) { }
+    const type = details.resourceType || '';
+    const urlPart = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}${urlObj.search}`;
+    const key = `${urlPart}::${type}::${refHost}::v${_nativeRuleVersion}::f${FALLBACK_RULE_VERSION.value}`;
+    // Refuse absurdly long keys (avoid unbounded memory / conflating distinct
+    // URLs by truncation); a null key simply disables caching for that request.
+    return key.length > 2048 ? null : key;
+  } catch (e) {
+    return null;
+  }
+}
+
 function isCriticalResource(resourceType, pathname) {
   if (!resourceType || typeof resourceType !== 'string') return false;
   const critical = ['mainFrame', 'document', 'stylesheet', 'font'];
@@ -346,6 +481,11 @@ function isCriticalResource(resourceType, pathname) {
 }
 
 let _urlDecisionCache = new FastLRUCache(5000);
+// Decision cache for the native engine (and fallback-through-dispatcher)
+// path. Caches the blocker verdict per (url, type, referrer-host, rule
+// version) so repeated requests skip the synchronous engine match on the
+// main process — the measured hot path (~0.3-13ms per request).
+let _nativeDecisionCache = new FastLRUCache(5000);
 let _trackerDomainSet = new Set();
 let _trackerSuffixMap = new Map();
 let _pathKeywordSet = new Set();
@@ -1061,7 +1201,6 @@ function attachAggressiveFallbackToSession(sess) {
             }
           }
         }
-
         if (!matchedRule && pathname) {
           for (const keyword of _pathKeywordSet) {
             if (pathname.indexOf(keyword) !== -1) {
@@ -1702,6 +1841,9 @@ function openLinkInNewWindow(url) {
         partition: 'persist:browser',
       },
     });
+
+    standaloneWindows.add(win);
+    win.on('closed', () => { standaloneWindows.delete(win); });
 
     win.loadURL(url).catch((err) => logError('new-window-load', err));
     win.once('ready-to-show', () => {
@@ -2843,6 +2985,17 @@ function createWindow() {
       overlayWindow.close();
       overlayWindow = null;
     }
+    // Close every standalone "Open Link in New Window" window too. They are
+    // not children of this window, so they would otherwise survive its close:
+    // window-all-closed would never fire, app.quit() would never be reached,
+    // and the process would stay running in the background (visible in
+    // Task Manager) even though the browser UI is gone.
+    for (const win of Array.from(standaloneWindows)) {
+      if (!win.isDestroyed()) {
+        try { win.close(); } catch (e) { }
+      }
+    }
+    standaloneWindows.clear();
     activeTabId = null;
     tabs.clear();
     mainWindow = null;
@@ -3346,6 +3499,7 @@ async function reconfigureAdblocker() {
       contentBlockingRuntime = null;
       try { if (adblockerService) { adblockerService.destroy(); } } catch (e) { }
       adblockerService = null;
+      _nativeRuleVersion += 1;
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('adblock-css-updated', { css: '' });
       return;
     }
@@ -3358,6 +3512,7 @@ async function reconfigureAdblocker() {
     contentBlockingRuntime = null;
     try { if (adblockerService) { adblockerService.destroy(); } } catch (e) { }
     adblockerService = null;
+    _nativeRuleVersion += 1;
 
     // Create and initialize new service
     adblockerService = new AdblockerService({
