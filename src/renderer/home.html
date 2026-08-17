@@ -529,76 +529,12 @@
       </form>
     </section>
 
-    <!-- Speed Dial -->
-    <section class="dial-section">
+    <!-- Speed Dial / Quick Access — rendered from the persistent Quick Access
+         store (see the script at the end of the body). The section hides
+         itself when the store is empty. -->
+    <section class="dial-section" id="dial-section">
       <div class="section-label">Quick access</div>
-      <div class="dial-grid" id="dial-grid">
-
-        <a class="dial" href="https://youtube.com">
-          <div class="dial-favicon">
-            <img src="https://www.google.com/s2/favicons?domain=youtube.com&sz=32" alt="" loading="lazy" />
-          </div>
-          <strong>YouTube</strong>
-          <span>youtube.com</span>
-        </a>
-
-        <a class="dial" href="https://github.com">
-          <div class="dial-favicon">
-            <img src="https://www.google.com/s2/favicons?domain=github.com&sz=32" alt="" loading="lazy" />
-          </div>
-          <strong>GitHub</strong>
-          <span>github.com</span>
-        </a>
-
-        <a class="dial" href="https://search.brave.com">
-          <div class="dial-favicon">
-            <img src="https://www.google.com/s2/favicons?domain=search.brave.com&sz=32" alt="" loading="lazy" />
-          </div>
-          <strong>Brave Search</strong>
-          <span>search.brave.com</span>
-        </a>
-
-        <a class="dial" href="https://mail.google.com">
-          <div class="dial-favicon">
-            <img src="https://www.google.com/s2/favicons?domain=mail.google.com&sz=32" alt="" loading="lazy" />
-          </div>
-          <strong>Gmail</strong>
-          <span>mail.google.com</span>
-        </a>
-
-        <a class="dial" href="https://x.com">
-          <div class="dial-favicon">
-            <img src="https://www.google.com/s2/favicons?domain=x.com&sz=32" alt="" loading="lazy" />
-          </div>
-          <strong>X</strong>
-          <span>x.com</span>
-        </a>
-
-        <a class="dial" href="https://reddit.com">
-          <div class="dial-favicon">
-            <img src="https://www.google.com/s2/favicons?domain=reddit.com&sz=32" alt="" loading="lazy" />
-          </div>
-          <strong>Reddit</strong>
-          <span>reddit.com</span>
-        </a>
-
-        <a class="dial" href="https://stackoverflow.com">
-          <div class="dial-favicon">
-            <img src="https://www.google.com/s2/favicons?domain=stackoverflow.com&sz=32" alt="" loading="lazy" />
-          </div>
-          <strong>Stack Overflow</strong>
-          <span>stackoverflow.com</span>
-        </a>
-
-        <a class="dial" href="https://news.ycombinator.com">
-          <div class="dial-favicon">
-            <img src="https://www.google.com/s2/favicons?domain=news.ycombinator.com&sz=32" alt="" loading="lazy" />
-          </div>
-          <strong>Hacker News</strong>
-          <span>news.ycombinator.com</span>
-        </a>
-
-      </div>
+      <div class="dial-grid" id="dial-grid"></div>
     </section>
 
   </div>
@@ -656,13 +592,80 @@
       window.location.assign(target);
     });
 
-    // Favicon error fallback
-    document.querySelectorAll('.dial-favicon img').forEach(img => {
-      img.onerror = () => {
-        img.style.display = 'none';
-        img.parentElement.textContent = img.closest('.dial').querySelector('strong').textContent[0];
-      };
-    });
+    // ── QUICK ACCESS (speed dial) ─────────────────────────────
+    // The dial grid renders from the persistent Quick Access store in the main
+    // process (electron-store backed — the same list the chrome's star popup
+    // maintains). Live updates arrive via quick-access-updated pushes, so
+    // adding/removing from the star popdown reflects here instantly, no
+    // restart or manual refresh needed. When this page is opened outside the
+    // app (no preload API), the historical default dials render statically
+    // instead so the page still looks right.
+    (function () {
+      const grid = document.getElementById('dial-grid');
+      const section = document.getElementById('dial-section');
+      if (!grid) return;
+
+      const DEFAULT_DIALS = [
+        { title: 'YouTube', url: 'https://youtube.com', favicon: 'https://www.google.com/s2/favicons?domain=youtube.com&sz=32' },
+        { title: 'GitHub', url: 'https://github.com', favicon: 'https://www.google.com/s2/favicons?domain=github.com&sz=32' },
+        { title: 'Brave Search', url: 'https://search.brave.com', favicon: 'https://www.google.com/s2/favicons?domain=search.brave.com&sz=32' },
+        { title: 'Gmail', url: 'https://mail.google.com', favicon: 'https://www.google.com/s2/favicons?domain=mail.google.com&sz=32' },
+        { title: 'X', url: 'https://x.com', favicon: 'https://www.google.com/s2/favicons?domain=x.com&sz=32' },
+        { title: 'Reddit', url: 'https://reddit.com', favicon: 'https://www.google.com/s2/favicons?domain=reddit.com&sz=32' },
+        { title: 'Stack Overflow', url: 'https://stackoverflow.com', favicon: 'https://www.google.com/s2/favicons?domain=stackoverflow.com&sz=32' },
+        { title: 'Hacker News', url: 'https://news.ycombinator.com', favicon: 'https://www.google.com/s2/favicons?domain=news.ycombinator.com&sz=32' },
+      ];
+
+      function sanitizeText(str) {
+        const d = document.createElement('div');
+        d.textContent = str;
+        return d.innerHTML;
+      }
+
+      function buildDial(item) {
+        const url = (item && item.url) || '';
+        const title = (item && (item.title || item.url)) || '';
+        const faviconUrl = (item && typeof item.favicon === 'string') ? item.favicon : '';
+        const display = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+        const img = faviconUrl
+          ? '<img src="' + faviconUrl.replace(/"/g, '&quot;') + '" alt="" loading="lazy" />'
+          : '';
+        return '<a class="dial" href="' + url.replace(/"/g, '&quot;') + '">'
+          + '<div class="dial-favicon">' + img + '</div>'
+          + '<strong>' + sanitizeText(title) + '</strong>'
+          + '<span>' + sanitizeText(display) + '</span>'
+          + '</a>';
+      }
+
+      function render(list) {
+        const entries = Array.isArray(list) ? list : [];
+        if (section) section.style.display = entries.length ? '' : 'none';
+        grid.innerHTML = entries.map(buildDial).join('');
+        // Favicon error fallback: show the first letter of the title.
+        grid.querySelectorAll('.dial-favicon').forEach((el) => {
+          const img = el.querySelector('img');
+          const letter = () => {
+            const strong = el.closest('.dial') && el.closest('.dial').querySelector('strong');
+            return strong ? strong.textContent.charAt(0) : '?';
+          };
+          if (!img) { el.textContent = letter(); return; }
+          img.onerror = () => {
+            img.style.display = 'none';
+            el.textContent = letter();
+          };
+        });
+      }
+
+      const kairon = window.kairon;
+      if (kairon && typeof kairon.getQuickAccess === 'function' && typeof kairon.onQuickAccessUpdated === 'function') {
+        kairon.getQuickAccess()
+          .then((list) => render(list))
+          .catch(() => render(DEFAULT_DIALS));
+        kairon.onQuickAccessUpdated((list) => render(list));
+      } else {
+        render(DEFAULT_DIALS);
+      }
+    })();
   </script>
 
   <script>

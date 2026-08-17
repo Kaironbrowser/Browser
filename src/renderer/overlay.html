@@ -544,6 +544,73 @@
     .am-zoom-reset:hover { background: var(--am-bg-hover); color: var(--am-text); }
     .am-zoom-reset:focus, .am-zoom-reset:focus-visible { outline: none; }
 
+    /* ── STAR POPUP (Quick Access / Bookmarks chooser) ────────
+       Tiny two-option popdown anchored under the chrome's star button. Same
+       surface language as the app menu / downloads panel: pure black in dark
+       mode, the existing light surface in light mode, monochrome, no
+       gradients, thin low-contrast border, subtle row hover. Fills the
+       overlay exactly — main sizes the overlay to the popup rect. */
+    #star-popup {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      padding: 6px;
+      background: var(--am-bg);
+      border: 1px solid var(--am-border);
+      border-radius: 10px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+      color: var(--am-text);
+      font-size: 13px;
+      line-height: 1.4;
+      transform-origin: top right;
+      /* Reuses the app menu's enter/exit animations (am-in/am-out). */
+      animation: am-in 140ms cubic-bezier(0.2, 0.7, 0.3, 1);
+      pointer-events: auto;
+    }
+    #star-popup[hidden] { display: none; }
+    #star-popup.sp-closing { animation: am-out 120ms ease-in forwards; }
+    @media (prefers-reduced-motion: reduce) {
+      #star-popup, #star-popup.sp-closing { animation: none; }
+    }
+    .sp-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      height: 32px;
+      padding: 0 10px;
+      border: none;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--am-text);
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12.5px;
+      text-align: left;
+      cursor: pointer;
+      transition: background 90ms ease, color 90ms ease;
+    }
+    .sp-item:hover:not(:disabled) { background: var(--am-bg-hover); }
+    .sp-item:active:not(:disabled) { background: var(--am-bg-active); }
+    .sp-item:focus, .sp-item:focus-visible { outline: none; }
+    .sp-item:disabled { color: var(--am-disabled); cursor: default; }
+    .sp-icon {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      color: var(--am-text-2);
+    }
+    .sp-item:disabled .sp-icon { color: var(--am-disabled); }
+    .sp-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     /* ── ABOUT DIALOG ───────────────────────────────────────────
        Centered modal rendered by the overlay at full-window size (the overlay
        covers the whole window when no panel is open). Monochrome card on a
@@ -602,8 +669,47 @@
     }
     #about-close:hover { background: var(--am-bg-active); }
     #about-close:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--am-focus); }
+
+    /* ── TOAST ────────────────────────────────────────────────
+       Subtle transient feedback (bookmark add/remove) rendered by the overlay
+       so it always paints above BrowserView content. Monochrome, matches the
+       internal-page toast pattern. */
+    :root {
+      --toast-bg:    #111111;
+      --toast-border: #2a2a2a;
+      --toast-text:  #e4e4e4;
+    }
+    :root[data-theme='light'] {
+      --toast-bg:    #2a2a2a;
+      --toast-border: #3c3c3c;
+      --toast-text:  #f1f1f1;
+    }
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      max-width: 90%;
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: 1px solid var(--toast-border);
+      background: var(--toast-bg);
+      color: var(--toast-text);
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12.5px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 150ms ease;
+      pointer-events: none;
+      user-select: none;
+    }
+    #toast.show { opacity: 1; }
     @media (prefers-reduced-motion: reduce) {
-      #about-card { animation: none; }
+      #toast { transition: none; }
     }
   </style>
   <script>
@@ -679,7 +785,7 @@
         <div class="am-label">Browser</div>
         <button type="button" class="am-item" role="menuitem" data-action="history"><span class="am-name">History</span><span class="am-shortcut">Ctrl+H</span></button>
         <button type="button" class="am-item" role="menuitem" data-action="downloads"><span class="am-name">Downloads</span><span class="am-shortcut">Ctrl+J</span></button>
-        <button type="button" class="am-item" role="menuitem" data-action="bookmarks" disabled><span class="am-name">Bookmarks</span><span class="am-note">Not available</span></button>
+        <button type="button" class="am-item" role="menuitem" data-action="bookmarks"><span class="am-name">Bookmarks</span></button>
         <button type="button" class="am-item" role="menuitem" data-action="extensions" disabled><span class="am-name">Extensions</span><span class="am-note">Not available</span></button>
       </div>
       <div class="am-sep" role="separator"></div>
@@ -693,6 +799,32 @@
         <div class="am-label">System</div>
         <button type="button" class="am-item" role="menuitem" data-action="exit"><span class="am-name">Exit</span><span class="am-shortcut">Alt+F4</span></button>
       </div>
+    </div>
+
+    <!-- Star popup — Quick Access / Bookmarks chooser anchored under the
+         chrome's star button. Main sizes the overlay to exactly this popup's
+         rect; overlay.js swaps the two row labels from the live main-process
+         state ("Add"/"Remove" per current membership). -->
+    <div id="star-popup" role="menu" aria-label="Page actions" hidden>
+      <button type="button" class="sp-item" role="menuitem" data-action="quick-access" id="sp-quick-access-item">
+        <span class="sp-icon">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+            <rect x="1.5" y="1.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.1"/>
+            <rect x="7.5" y="1.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.1"/>
+            <rect x="1.5" y="7.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.1"/>
+            <rect x="7.5" y="7.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.1"/>
+          </svg>
+        </span>
+        <span class="sp-name" id="sp-quick-access-label">Add to Quick Access</span>
+      </button>
+      <button type="button" class="sp-item" role="menuitem" data-action="bookmark" id="sp-bookmark-item">
+        <span class="sp-icon">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+            <path d="M2.5 1.5h8v10L6.5 9 2.5 11.5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="sp-name" id="sp-bookmark-label">Add to Bookmarks</span>
+      </button>
     </div>
 
     <!-- About dialog — centered modal at full-window overlay size. -->
@@ -712,6 +844,11 @@
       </div>
     </div>
   </div>
+
+  <!-- Toast — subtle transient feedback (bookmark add/remove). Shown by main
+       positioning the overlay; auto-hides after its display cycle. -->
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+
   <script src="overlay.js"></script>
   <script>
     // ── GLOBAL THEME LIVE SYNC ─────────────────────────────

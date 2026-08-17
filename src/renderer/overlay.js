@@ -110,6 +110,18 @@ window.kairon.on('overlay-hide', () => {
   suggestions.style.right = '';
   suggestions.style.maxWidth = '';
   suggestions.style.boxSizing = '';
+  // Another popup is taking over the overlay — drop any lingering toast.
+  hideToast();
+  // Force the star popup out of the way instantly (same rule as the app menu
+  // when the About dialog takes over): the overlay is being repositioned for
+  // another popup right now, so a still-animating close would paint a fading
+  // ghost in the wrong place.
+  if (starPopup) {
+    if (_starPopupHideTimer) { clearTimeout(_starPopupHideTimer); _starPopupHideTimer = null; }
+    starPopup.classList.remove('sp-closing');
+    starPopup.hidden = true;
+  }
+  starPopupVisible = false;
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -127,6 +139,10 @@ const downloadsShowMore = document.getElementById('downloads-show-more-btn');
 
 let downloadsCache = [];
 let downloadsPanelVisible = false;
+// id -> { el, state, status, fill, actions } — existing panel rows, keyed by
+// the stable download id so progress pushes update the right row in place
+// without rebuilding the list.
+const panelRowMap = new Map();
 
 // ── ICONS / FORMATTING ──────────────────────────────────────
 
@@ -205,10 +221,6 @@ function dlIsOpenable(d) {
   return !!(d.savePath && (d.state === 'completed' || d.state === 'interrupted' || d.state === 'failed' || d.state === 'cancelled'));
 }
 
-function dlIsActive(d) {
-  return d.state === 'downloading' || d.state === 'paused' || d.state === 'interrupted';
-}
-
 // ── RENDERING ───────────────────────────────────────────────
 
 function makeIconBtn(inner, label, action) {
@@ -232,6 +244,10 @@ function buildDownloadRow(d) {
   row.setAttribute('aria-label', d.filename || 'Download');
   row.tabIndex = -1;
 
+  // Mutable row parts are captured here so progress pushes can update them
+  // in place — the row element itself is never rebuilt.
+  const refs = { el: row, state: d.state, status: null, fill: null, actions: null };
+
   const icon = document.createElement('div');
   icon.className = 'dl-icon';
   icon.innerHTML = DL_ICONS[dlFileKind(d)] || DL_ICONS.document;
@@ -245,29 +261,26 @@ function buildDownloadRow(d) {
   filename.title = d.filename || '';
   body.appendChild(filename);
 
-  if (dlIsActive(d)) {
-    const status = document.createElement('div');
-    status.className = 'dl-status';
-    status.textContent = dlStatusText(d);
-    body.appendChild(status);
-    if (d.state === 'downloading' || d.state === 'paused') {
-      const bar = document.createElement('div');
-      bar.className = 'dl-progress';
-      const fill = document.createElement('div');
-      fill.className = 'dl-progress-fill';
-      fill.style.width = `${dlProgressPercent(d)}%`;
-      bar.appendChild(fill);
-      body.appendChild(bar);
-    }
-  } else {
-    const status = document.createElement('div');
-    status.className = 'dl-status' + (d.state === 'failed' ? ' failed' : '');
-    status.textContent = dlStatusText(d);
-    body.appendChild(status);
+  const status = document.createElement('div');
+  status.className = 'dl-status' + (d.state === 'failed' ? ' failed' : '');
+  status.textContent = dlStatusText(d);
+  body.appendChild(status);
+  refs.status = status;
+
+  if (d.state === 'downloading' || d.state === 'paused') {
+    const bar = document.createElement('div');
+    bar.className = 'dl-progress';
+    const fill = document.createElement('div');
+    fill.className = 'dl-progress-fill';
+    fill.style.width = `${dlProgressPercent(d)}%`;
+    bar.appendChild(fill);
+    body.appendChild(bar);
+    refs.fill = fill;
   }
 
   const actions = document.createElement('div');
   actions.className = 'dl-actions';
+  refs.actions = actions;
   if (d.state === 'downloading') {
     actions.appendChild(makeIconBtn(ICON_PAUSE, 'Pause download', () => window.kairon.pauseDownload(d.id)));
     actions.appendChild(makeIconBtn(ICON_CANCEL, 'Cancel download', () => window.kairon.cancelDownload(d.id)));
@@ -287,19 +300,103 @@ function buildDownloadRow(d) {
     if (dlIsOpenable(d)) window.kairon.openDownload(d.id);
   });
 
-  return row;
+  return refs;
+}
+
+// Incremental update of an existing panel row: progress pushes only touch the
+// status text and progress fill; a state transition restructures the progress
+// bar and action buttons in place without replacing the row element.
+function updateDownloadRow(refs, d) {
+  const prevState = refs.state;
+  refs.state = d.state;
+
+  if (prevState !== d.state) {
+    refs.el.classList.toggle('openable', dlIsOpenable(d));
+
+    const body = refs.el.querySelector('.dl-body');
+    const bar = refs.el.querySelector('.dl-progress');
+    const wantBar = d.state === 'downloading' || d.state === 'paused';
+    if (wantBar && !bar) {
+      const barEl = document.createElement('div');
+      barEl.className = 'dl-progress';
+      const fill = document.createElement('div');
+      fill.className = 'dl-progress-fill';
+      fill.style.width = `${dlProgressPercent(d)}%`;
+      barEl.appendChild(fill);
+      body.appendChild(barEl);
+      refs.fill = fill;
+    } else if (!wantBar && bar) {
+      bar.remove();
+      refs.fill = null;
+    }
+
+    refs.actions.innerHTML = '';
+    if (d.state === 'downloading') {
+      refs.actions.appendChild(makeIconBtn(ICON_PAUSE, 'Pause download', () => window.kairon.pauseDownload(d.id)));
+      refs.actions.appendChild(makeIconBtn(ICON_CANCEL, 'Cancel download', () => window.kairon.cancelDownload(d.id)));
+    } else if (d.state === 'paused' || d.state === 'interrupted') {
+      refs.actions.appendChild(makeIconBtn(ICON_RESUME, 'Resume download', () => window.kairon.resumeDownload(d.id)));
+      refs.actions.appendChild(makeIconBtn(ICON_CANCEL, 'Cancel download', () => window.kairon.cancelDownload(d.id)));
+    } else if (d.savePath) {
+      refs.actions.appendChild(makeIconBtn(ICON_FOLDER, 'Show in folder', () => window.kairon.showDownloadInFolder(d.id)));
+    }
+  }
+
+  if (refs.status) {
+    refs.status.textContent = dlStatusText(d);
+    refs.status.classList.toggle('failed', d.state === 'failed');
+  }
+  if (refs.fill) refs.fill.style.width = `${dlProgressPercent(d)}%`;
+}
+
+// Same reconciliation as the kairon://downloads page: rows are built once and
+// updated in place; a progress push never rebuilds or moves existing rows.
+function syncDownloadsPanel(list) {
+  const liveIds = new Set();
+  for (const d of list) liveIds.add(d.id);
+  for (const [id, refs] of panelRowMap) {
+    if (!liveIds.has(id)) {
+      refs.el.remove();
+      panelRowMap.delete(id);
+    }
+  }
+
+  const empty = downloadsList.querySelector('#downloads-empty');
+  if (!list.length) {
+    if (!empty) {
+      const e = document.createElement('div');
+      e.id = 'downloads-empty';
+      e.textContent = 'No downloads yet';
+      downloadsList.appendChild(e);
+    }
+    return;
+  }
+  if (empty) empty.remove();
+
+  let prevEl = null;
+  for (const d of list) {
+    let refs = panelRowMap.get(d.id);
+    if (!refs) {
+      refs = buildDownloadRow(d);
+      panelRowMap.set(d.id, refs);
+    } else {
+      updateDownloadRow(refs, d);
+    }
+    const el = refs.el;
+    if (prevEl) {
+      if (el.previousSibling !== prevEl) {
+        if (prevEl.nextSibling) downloadsList.insertBefore(el, prevEl.nextSibling);
+        else downloadsList.appendChild(el);
+      }
+    } else if (downloadsList.firstChild !== el) {
+      downloadsList.insertBefore(el, downloadsList.firstChild);
+    }
+    prevEl = el;
+  }
 }
 
 function renderDownloadsPanel() {
-  downloadsList.innerHTML = '';
-  if (!downloadsCache.length) {
-    const empty = document.createElement('div');
-    empty.id = 'downloads-empty';
-    empty.textContent = 'No downloads yet';
-    downloadsList.appendChild(empty);
-    return;
-  }
-  for (const d of downloadsCache) downloadsList.appendChild(buildDownloadRow(d));
+  syncDownloadsPanel(downloadsCache);
 }
 
 function focusFirstDownloadRow() {
@@ -424,11 +521,13 @@ downloadsList.addEventListener('keydown', (e) => {
 });
 
 // Escape closes whatever is open: the About dialog, then the app menu, then
-// the downloads panel (its nested menu first, then the panel itself).
+// the star popup, then the downloads panel (its nested menu first, then the
+// panel itself).
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (aboutVisible) { window.kairon.hideAbout(); return; }
   if (appMenuVisible) { window.kairon.hideAppMenu(); return; }
+  if (starPopupVisible) { window.kairon.hideStarPopup(); return; }
   if (!downloadsPanelVisible) return;
   if (!downloadsMenu.hidden) {
     closeDownloadsMenu();
@@ -521,6 +620,7 @@ function runAppMenuCommand(action) {
     case 'find':          window.kairon.showFindBar(); break;
     case 'history':       window.kairon.navigate('kairon://history'); break;
     case 'downloads':     window.kairon.navigate('kairon://downloads'); break;
+    case 'bookmarks':     window.kairon.navigate('kairon://bookmarks'); break;
     case 'settings':      window.kairon.navigate('kairon://settings'); break;
     case 'exit':          window.kairon.exitApp(); break;
     default: break;
@@ -596,6 +696,106 @@ appMenu.addEventListener('keydown', (e) => {
 });
 
 // ══════════════════════════════════════════════════════════════
+//  STAR POPUP — Quick Access / Bookmarks chooser rendered by the
+//  overlay so it always paints above BrowserView content. Anchored by
+//  the star button; main forwards the live page state so the two rows
+//  read the current membership ("Add" vs "Remove").
+// ══════════════════════════════════════════════════════════════
+
+const starPopup = document.getElementById('star-popup');
+const starQaItem = document.getElementById('sp-quick-access-item');
+const starBmItem = document.getElementById('sp-bookmark-item');
+const starQaLabel = document.getElementById('sp-quick-access-label');
+const starBmLabel = document.getElementById('sp-bookmark-label');
+
+let starPopupVisible = false;
+let _starPopupHideTimer = null;
+
+function showStarPopup(payload) {
+  if (!starPopup) return;
+  const state = (payload && payload.state) || {};
+  const bookmarkable = !!state.bookmarkable;
+  if (starQaItem) starQaItem.disabled = !bookmarkable;
+  if (starBmItem) starBmItem.disabled = !bookmarkable;
+  if (starQaLabel) starQaLabel.textContent = state.inQuickAccess ? 'Remove from Quick Access' : 'Add to Quick Access';
+  if (starBmLabel) starBmLabel.textContent = state.bookmarked ? 'Remove from Bookmarks' : 'Add to Bookmarks';
+
+  clearTimeout(_starPopupHideTimer);
+  starPopup.classList.remove('sp-closing');
+  starPopup.hidden = false;
+  void starPopup.offsetHeight; // restart the enter animation on every open
+  starPopupVisible = true;
+
+  // Report the exact natural height so main can size the overlay to fit the
+  // popup precisely (initial estimate may differ by a few px from font metrics).
+  requestAnimationFrame(() => {
+    if (!starPopupVisible) return;
+    const prevHeight = starPopup.style.height;
+    starPopup.style.height = 'auto';
+    const h = starPopup.offsetHeight;
+    starPopup.style.height = prevHeight || '';
+    if (h > 0) window.kairon.sendStarPopupMeasure({ height: h });
+  });
+
+  const first = starPopup.querySelector('.sp-item:not([disabled])');
+  if (first) first.focus();
+}
+
+function hideStarPopup() {
+  if (!starPopupVisible) return;
+  starPopupVisible = false;
+  clearTimeout(_starPopupHideTimer);
+  const finishClose = () => {
+    starPopup.hidden = true;
+    // Tell main the popup is fully hidden (animation finished) so it can
+    // restore the overlay's default bounds without a visible teleport.
+    window.kairon.notifyPopupClosed();
+  };
+  if (REDUCED_MOTION) { finishClose(); return; }
+  starPopup.classList.add('sp-closing');
+  _starPopupHideTimer = setTimeout(finishClose, 130);
+}
+
+window.kairon.on('star-popup-show', (payload) => showStarPopup(payload));
+window.kairon.on('star-popup-hide', () => hideStarPopup());
+
+// A row click runs the action through main (same BookmarkService /
+// QuickAccessService source of truth as Ctrl+D), then closes the popup.
+starPopup.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('button[data-action]');
+  if (!btn || btn.disabled) return;
+  const action = btn.dataset.action;
+  if (!action) return;
+  e.stopPropagation();
+  if (action === 'quick-access') window.kairon.toggleActiveQuickAccess().catch(() => {});
+  else if (action === 'bookmark') window.kairon.toggleActiveBookmark().catch(() => {});
+  hideStarPopup();
+});
+
+// Arrow / Home / End navigation between the two rows; Escape closes.
+starPopup.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    window.kairon.hideStarPopup();
+    return;
+  }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+  const items = Array.from(starPopup.querySelectorAll('.sp-item:not([disabled])'));
+  if (!items.length) return;
+  const idx = items.indexOf(document.activeElement);
+  let next = -1;
+  if (e.key === 'ArrowDown') next = idx + 1;
+  else if (e.key === 'ArrowUp') next = idx - 1;
+  else if (e.key === 'Home') next = 0;
+  else if (e.key === 'End') next = items.length - 1;
+  if (next < 0) next = items.length - 1;
+  if (next >= items.length) next = 0;
+  e.preventDefault();
+  items[next].focus();
+});
+
+// ══════════════════════════════════════════════════════════════
 //  ABOUT DIALOG — centered modal at full-window overlay size.
 // ══════════════════════════════════════════════════════════════
 
@@ -631,3 +831,38 @@ window.kairon.on('about-hide', () => hideAboutDialog());
 
 if (aboutBackdrop) aboutBackdrop.addEventListener('click', () => window.kairon.hideAbout());
 if (aboutCloseBtn) aboutCloseBtn.addEventListener('click', () => window.kairon.hideAbout());
+
+// ══════════════════════════════════════════════════════════════
+//  TOAST — subtle transient feedback (bookmark add/remove).
+//  Main positions the overlay and sends toast-show; this hides after
+//  its display cycle and tells main so it can reclaim the overlay.
+// ══════════════════════════════════════════════════════════════
+
+const toastEl = document.getElementById('toast');
+const TOAST_VISIBLE_MS = 1800;
+let toastTimer = null;
+
+function showToast(payload) {
+  if (!toastEl || !payload || !payload.message) return;
+  toastEl.textContent = payload.message;
+  toastEl.hidden = false;
+  void toastEl.offsetHeight; // restart the fade-in
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, TOAST_VISIBLE_MS);
+}
+
+// Fade out and tell main the display cycle finished so it can hide the
+// overlay and restore its default bounds. Idempotent — also reached from
+// main's toast-hide safety net and from overlay-hide (popup takeover).
+function hideToast() {
+  if (!toastEl) return;
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+  if (toastEl.hidden) return;
+  toastEl.classList.remove('show');
+  toastEl.hidden = true;
+  window.kairon.notifyToastHidden();
+}
+
+window.kairon.on('toast-show', (payload) => showToast(payload));
+window.kairon.on('toast-hide', () => hideToast());

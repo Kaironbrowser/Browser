@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, ipcMain, nativeImage, session, screen, webContents, dialog, net, nativeTheme } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, nativeImage, session, screen, webContents, dialog, net, nativeTheme, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -11,6 +11,8 @@ const { FeatureStore } = require('./featureStore');
 const { setupContextMenu } = require('./context-menu');
 const { setupTabContextMenu } = require('./tab-context-menu');
 const { HistoryService } = require('./history');
+const { BookmarkService } = require('./bookmarks');
+const { QuickAccessService } = require('./quick-access');
 const { TabSleepManager } = require('./tab-sleep');
 const { DownloadManager } = require('./downloads');
 const {
@@ -316,6 +318,8 @@ function applyWebRtcProtectionToTabs() {
 }
 
 let historyService = null;
+let bookmarkService = null;
+let quickAccessService = null;
 let downloadManager = null;
 
 let mainWindow = null;
@@ -333,8 +337,17 @@ let _lastDownloadsPanelBounds = null;
 // Current anchor info for the application menu (or null when closed).
 let activeAppMenu = null;
 let _lastAppMenuBounds = null;
+// Current anchor info for the star popup (Quick Access / Bookmarks chooser,
+// or null when closed). Shares the overlay with every other popup.
+let activeStarPopup = null;
+let _lastStarPopupBounds = null;
 // True while the About dialog is shown in the overlay window.
 let activeAboutDialog = false;
+// Current overlay toast (or null when none is showing) plus its auto-hide
+// timer. The toast is a tiny click-through overlay popup used for subtle
+// bookmark feedback ("Bookmark added"/"Bookmark removed").
+let activeToast = null;
+let _toastTimer = null;
 // True while a popup's (app menu / downloads panel) close animation is still
 // playing in the overlay. While set, the overlay window must not be moved or
 // resized: any setBounds would teleport the still-visible popup to a default
@@ -561,6 +574,8 @@ const HOME_PAGE_FILE = path.join(__dirname, '../renderer/home.html');
 const HISTORY_PAGE_FILE = path.join(__dirname, '../renderer/history.html');
 const DOWNLOAD_PAGE_URL = 'kairon://downloads';
 const DOWNLOAD_PAGE_FILE = path.join(__dirname, '../renderer/downloads.html');
+const BOOKMARKS_PAGE_URL = 'kairon://bookmarks';
+const BOOKMARKS_PAGE_FILE = path.join(__dirname, '../renderer/bookmarks.html');
 // The Incognito home/new-tab page — a trusted internal page loaded only by
 // the Incognito window (see incognito.js).
 const INCOGNITO_PAGE_FILE = path.join(__dirname, '../renderer/incognito_mode.html');
@@ -628,6 +643,10 @@ function isDownloadsUrl(input) {
   return typeof input === 'string' && input.trim().toLowerCase() === DOWNLOAD_PAGE_URL;
 }
 
+function isBookmarksUrl(input) {
+  return typeof input === 'string' && input.trim().toLowerCase() === BOOKMARKS_PAGE_URL;
+}
+
 function isSettingsUrl(input) {
   return typeof input === 'string' && /^kairon:\/\/settings(\/|$)/i.test(input.trim());
 }
@@ -660,6 +679,7 @@ function normalizeNavigationTarget(urlInput) {
   if (isHomeUrl(input) || input.toLowerCase() === 'home') return HOME_PAGE_URL;
   if (isHistoryUrl(input)) return 'kairon://history';
   if (isDownloadsUrl(input)) return DOWNLOAD_PAGE_URL;
+  if (isBookmarksUrl(input)) return BOOKMARKS_PAGE_URL;
   const settingsTarget = normalizeSettingsUrl(input);
   if (settingsTarget) return settingsTarget;
 
@@ -713,6 +733,18 @@ function getDownloadsPageFileUrl() {
     }
   }
   return _downloadsPageFileUrl;
+}
+
+let _bookmarksPageFileUrl = null;
+function getBookmarksPageFileUrl() {
+  if (_bookmarksPageFileUrl === null) {
+    try {
+      _bookmarksPageFileUrl = pathToFileURL(BOOKMARKS_PAGE_FILE).href;
+    } catch (e) {
+      _bookmarksPageFileUrl = '';
+    }
+  }
+  return _bookmarksPageFileUrl;
 }
 
 let _historyPageFileUrl = null;
@@ -940,6 +972,59 @@ function isInternalDownloadsPage(event) {
   }
 }
 
+// The internal bookmarks page (loaded via loadFile from BOOKMARKS_PAGE_FILE)
+// follows the exact same trust model as the history/downloads pages: trusted
+// only while its current URL is the local bookmarks.html file. If the page
+// navigates away, event.sender.getURL() no longer matches and privileges are
+// revoked immediately.
+function isInternalBookmarksPage(event) {
+  if (!event || !event.sender || typeof event.sender.getURL !== 'function') return false;
+  const target = getBookmarksPageFileUrl();
+  if (!target) return false;
+  try {
+    const current = event.sender.getURL();
+    if (!current) return false;
+    const norm = (raw) => {
+      try {
+        const parsed = new URL(raw);
+        return `${parsed.protocol}${parsed.host}${parsed.pathname}`.toLowerCase();
+      } catch (e) {
+        return String(raw).toLowerCase();
+      }
+    };
+    return norm(current) === norm(target);
+  } catch (e) {
+    return false;
+  }
+}
+
+// The internal home page (loaded via loadFile from HOME_PAGE_FILE) follows
+// the exact same trust model as the history/bookmarks/downloads pages: trusted
+// only while its current URL is the local home.html file. If the page
+// navigates away, event.sender.getURL() no longer matches and privileges are
+// revoked immediately. Incognito never loads home.html (it uses
+// incognito_mode.html instead), so its home page can never reach this.
+function isInternalHomePage(event) {
+  if (!event || !event.sender || typeof event.sender.getURL !== 'function') return false;
+  const target = getHomePageFileUrl();
+  if (!target) return false;
+  try {
+    const current = event.sender.getURL();
+    if (!current) return false;
+    const norm = (raw) => {
+      try {
+        const parsed = new URL(raw);
+        return `${parsed.protocol}${parsed.host}${parsed.pathname}`.toLowerCase();
+      } catch (e) {
+        return String(raw).toLowerCase();
+      }
+    };
+    return norm(current) === norm(target);
+  } catch (e) {
+    return false;
+  }
+}
+
 let _incognitoPageFileUrl = null;
 function getIncognitoPageFileUrl() {
   if (_incognitoPageFileUrl === null) {
@@ -992,7 +1077,7 @@ function isSettingsPageWebContents(wc) {
 // like the settings page. Normal websites can never match.
 function isInternalKaironPageWebContents(wc) {
   if (!wc || typeof wc.getURL !== 'function' || wc.isDestroyed()) return false;
-  const urls = [getHomePageFileUrl(), getHistoryPageFileUrl(), getDownloadsPageFileUrl(), getSettingsPageFileUrl(), getHttpsWarningPageFileUrl(), getErrorPageFileUrl(), getIpNotFoundPageFileUrl(), getIncognitoPageFileUrl()].filter(Boolean);
+  const urls = [getHomePageFileUrl(), getHistoryPageFileUrl(), getDownloadsPageFileUrl(), getBookmarksPageFileUrl(), getSettingsPageFileUrl(), getHttpsWarningPageFileUrl(), getErrorPageFileUrl(), getIpNotFoundPageFileUrl(), getIncognitoPageFileUrl()].filter(Boolean);
   if (!urls.length) return false;
   try {
     const current = wc.getURL();
@@ -1687,6 +1772,154 @@ function sendActiveTabSignals() {
   mainWindow.webContents.send('url-changed', tab.url || '');
   mainWindow.webContents.send('title-changed', tab.title || 'New Tab');
   mainWindow.webContents.send('loading', !!tab.loading);
+  pushActiveBookmarkState();
+}
+
+// ── BOOKMARK STAR STATE (chrome) ──────────────────────────────
+// Single source of truth for the chrome's bookmark star AND the star popup
+// (Quick Access / Bookmarks chooser). Computed here in the main process so
+// the renderer never parses URLs or normalizes bookmarks — it just renders
+// what main says. Non-bookmarkable pages (internal Kairon pages,
+// error/https-warning pages, non-http(s) URLs) always report
+// bookmarkable:false so the star disables itself and internal pages can
+// never be bookmarked or added to Quick Access.
+
+// The live webContents URL is the ground truth for what page a tab is really
+// showing: after ANY committed navigation it reflects the actual document,
+// regardless of how the tab's bookkeeping (tab.url / isInternalHome) was
+// updated. Star state and the Quick Access / Bookmarks toggles use this so a
+// tab that navigated away from an internal page (e.g. a cold-start home tab
+// searched from) is never pinned to kairon://home. Falls back to the
+// bookkeeping URL only while the webContents isn't usable yet.
+function getAuthoritativeTabUrl(tab) {
+  if (!tab) return '';
+  try {
+    const wc = tab.view && tab.view.webContents;
+    if (wc && !wc.isDestroyed()) {
+      const live = wc.getURL();
+      if (typeof live === 'string' && live.trim()) return live;
+    }
+  } catch (e) { }
+  return tab.url || '';
+}
+
+function getActiveBookmarkState() {
+  const tab = getActiveTab();
+  if (!tab || !bookmarkService) {
+    return { url: '', title: '', favicon: '', bookmarked: false, bookmarkable: false, inQuickAccess: false };
+  }
+  const wc = tab.view && tab.view.webContents;
+  const isInternal = !!(wc && !wc.isDestroyed()) && isInternalKaironPageWebContents(wc);
+  const liveUrl = getAuthoritativeTabUrl(tab);
+  // Report the kairon:// URL for internal pages (the chrome renders those as
+  // their kairon:// address), and the real http(s) URL for everything else —
+  // taken from the live webContents, never from stale restore-time bookkeeping.
+  const url = isInternal ? (tab.url || liveUrl || '') : (liveUrl || tab.url || '');
+  let bookmarkable = false;
+  try {
+    bookmarkable = isAllowedHttpUrl(url) && !!(wc && !wc.isDestroyed()) && !isInternal;
+  } catch (e) {
+    bookmarkable = false;
+  }
+
+  const bookmarked = bookmarkable ? !!bookmarkService.isBookmarked(url) : false;
+  const inQuickAccess = bookmarkable && quickAccessService ? !!quickAccessService.isInQuickAccess(url) : false;
+  return {
+    url,
+    title: (tab.title && typeof tab.title === 'string') ? tab.title : '',
+    favicon: (tab.favicon && typeof tab.favicon === 'string') ? tab.favicon : '',
+    bookmarked,
+    bookmarkable,
+    inQuickAccess,
+  };
+}
+
+// Push the active tab's bookmark state to the chrome so the star stays in
+// sync with Ctrl+D, the button, and bookmark changes made anywhere else.
+function pushActiveBookmarkState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.webContents.send('bookmark-state-changed', getActiveBookmarkState());
+  } catch (e) { }
+}
+
+// ── BOOKMARKS ──────────────────────────────────────────────────
+// Ctrl+D toggles the active page's bookmark. Only normal http(s) pages are
+// bookmarkable — internal Kairon pages (kairon://*, file:, about:, etc.) are
+// silently ignored. Feedback is shown through the overlay toast so it paints
+// above BrowserView content no matter where keyboard focus was.
+function toggleBookmarkForTab(tab) {
+  if (!tab || !bookmarkService) return;
+  // The live webContents URL is authoritative (never the URL the tab was
+  // restored/created with), so the toggle works on the page actually shown.
+  const url = getAuthoritativeTabUrl(tab);
+  if (!url || !isAllowedHttpUrl(url)) return;
+  const favicon = (tab.favicon && typeof tab.favicon === 'string') ? tab.favicon : '';
+  const result = bookmarkService.toggleBookmark(url, tab.title || '', favicon);
+  broadcastBookmarksState();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    showOverlayToast(result.bookmarked ? 'Bookmark added' : 'Bookmark removed');
+  }
+}  // Push the current bookmark list to every open Bookmarks page so it stays
+  // live (Ctrl+D in another tab, deletes, etc.) without polling, and refresh
+  // the chrome star (any mutation can affect the active tab). The normal
+  // browser chrome also receives the list to render the bookmarks bar; the
+  // Incognito window is deliberately excluded (its prefixed channels can't
+  // reach this, and it must never read the normal bookmark store).
+function broadcastBookmarksState() {
+  if (!bookmarkService) return;
+  const list = bookmarkService.getBookmarks();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.webContents.send('bookmarks-updated', list); } catch (e) { }
+  }
+  for (const tab of tabs.values()) {
+    try {
+      const wc = tab.view && tab.view.webContents;
+      if (!wc || wc.isDestroyed()) continue;
+      if (isInternalBookmarksPage({ sender: wc })) wc.send('bookmarks-updated', list);
+    } catch (e) {    }
+  }
+  pushActiveBookmarkState();
+}
+
+// ── QUICK ACCESS (home / new-tab page) ────────────────────────
+// The star popup's "Add to Quick Access" / "Remove from Quick Access" action.
+// Only normal http(s) pages are eligible — internal Kairon pages are rejected
+// upstream (the star is disabled there). Feedback goes through the overlay
+// toast, same as bookmark toggles.
+function toggleQuickAccessForTab(tab) {
+  if (!tab || !quickAccessService) return;
+  // Same authoritative URL rule as toggleBookmarkForTab.
+  const url = getAuthoritativeTabUrl(tab);
+  if (!url || !isAllowedHttpUrl(url)) return;
+  const favicon = (tab.favicon && typeof tab.favicon === 'string') ? tab.favicon : '';
+  const result = quickAccessService.toggle(url, tab.title || '', favicon);
+  broadcastQuickAccessState();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    showOverlayToast(result.inQuickAccess ? 'Added to Quick Access' : 'Removed from Quick Access');
+  }
+}
+
+// Push the current Quick Access list to every open home/new-tab page so it
+// reflects changes immediately (no restart, no manual refresh), and refresh
+// the chrome star state (Quick Access membership is part of it). The normal
+// browser chrome also receives the list for symmetry; the Incognito window
+// is deliberately excluded (its prefixed channels can't reach this, and it
+// must never read the normal Quick Access store).
+function broadcastQuickAccessState() {
+  if (!quickAccessService) return;
+  const list = quickAccessService.getEntries();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.webContents.send('quick-access-updated', list); } catch (e) { }
+  }
+  for (const tab of tabs.values()) {
+    try {
+      const wc = tab.view && tab.view.webContents;
+      if (!wc || wc.isDestroyed()) continue;
+      if (isInternalHomePage({ sender: wc })) wc.send('quick-access-updated', list);
+    } catch (e) { }
+  }
+  pushActiveBookmarkState();
 }
 
 // ── INTERNAL PAGE TRANSITIONS ────────────────────────────────────────────
@@ -1735,7 +1968,7 @@ function navigateTabToTarget(tab, target) {
   // Defense in depth: only web schemes (plus the internal home/history pages)
   // may ever reach loadURL(). All current callers normalize first, but this
   // keeps any future caller (e.g. popup handling) from loading local schemes.
-  if (!isAllowedHttpUrl(target) && !isHomeUrl(target) && !isHistoryUrl(target) && !isDownloadsUrl(target) && !isSettingsUrl(target)) {
+  if (!isAllowedHttpUrl(target) && !isHomeUrl(target) && !isHistoryUrl(target) && !isDownloadsUrl(target) && !isBookmarksUrl(target) && !isSettingsUrl(target)) {
     if (DIAG) console.info('[tab] navigation target rejected', target);
     return;
   }
@@ -1788,6 +2021,15 @@ function navigateTabToTarget(tab, target) {
     tab.title = 'Downloads';
     // Pass the persisted theme so the page renders it before first paint.
     loadInternal(DOWNLOAD_PAGE_FILE);
+    return;
+  }
+  if (isBookmarksUrl(target)) {
+    // Internal bookmarks page — loaded locally, never remote content.
+    tab.isInternalHome = true;
+    tab.url = BOOKMARKS_PAGE_URL;
+    tab.title = 'Bookmarks';
+    // Pass the persisted theme so the page renders it before first paint.
+    loadInternal(BOOKMARKS_PAGE_FILE);
     return;
   }
   if (isSettingsUrl(target)) {
@@ -1882,6 +2124,9 @@ function createTab(initialTarget = HOME_PAGE_URL) {
     httpsOnlyWarningUrl: null,
     httpProceedUrl: null,
     sleeping: false,
+    // Real page favicon URL captured from page-favicon-updated (used to seed
+    // bookmarks with the actual favicon when available).
+    favicon: '',
     lastActiveAt: Date.now(),
     listeners: [],
   };
@@ -1980,14 +2225,30 @@ function createTab(initialTarget = HOME_PAGE_URL) {
       // falls through to the normal bookkeeping below.
       if (isErrorPageFileUrl(url) || isIpNotFoundPageFileUrl(url)) {
         tab.url = tab.showingErrorPage.url || url;
-        if (activeTabId === id) mainWindow.webContents.send('url-changed', tab.url);
+        if (activeTabId === id) {
+          mainWindow.webContents.send('url-changed', tab.url);
+          pushActiveBookmarkState();
+        }
         emitTabsState();
         return;
       }
       tab.showingErrorPage = null;
     }
+    // The committed document URL is authoritative. A tab still flagged as an
+    // internal page (isInternalHome — set at creation/restore for home tabs)
+    // that commits a real http(s) page means the will-navigate bookkeeping was
+    // missed (cold-start home-tab → search navigation race, programmatic
+    // loads, etc.). Clear the stale flag so the tab's URL follows the actual
+    // page instead of staying pinned to kairon://home — which would otherwise
+    // leave the star disabled and the Bookmark/Quick Access toggles inert.
+    if (tab.isInternalHome && isAllowedHttpUrl(url) && !isInternalKaironPageWebContents(tab.view && tab.view.webContents)) {
+      tab.isInternalHome = false;
+    }
     tab.url = tab.isInternalHome ? (tab.url || HOME_PAGE_URL) : (tab.httpsOnlyWarningUrl || url);
-    if (activeTabId === id) mainWindow.webContents.send('url-changed', tab.url);
+    if (activeTabId === id) {
+      mainWindow.webContents.send('url-changed', tab.url);
+      pushActiveBookmarkState();
+    }
     emitTabsState();
 
     // Record successful page navigation to history
@@ -2002,8 +2263,17 @@ function createTab(initialTarget = HOME_PAGE_URL) {
   };
 
   const onDidNavigateInPage = (_, url) => {
+    // Same stale-internal-flag correction as onDidNavigate: an in-page
+    // navigation committing a real http(s) URL on a tab still flagged as an
+    // internal page must clear the flag, never keep tab.url pinned to home.
+    if (tab.isInternalHome && isAllowedHttpUrl(url) && !isInternalKaironPageWebContents(tab.view && tab.view.webContents)) {
+      tab.isInternalHome = false;
+    }
     tab.url = tab.isInternalHome ? HOME_PAGE_URL : url;
-    if (activeTabId === id) mainWindow.webContents.send('url-changed', tab.url);
+    if (activeTabId === id) {
+      mainWindow.webContents.send('url-changed', tab.url);
+      pushActiveBookmarkState();
+    }
     emitTabsState();
   };
 
@@ -2030,7 +2300,12 @@ function createTab(initialTarget = HOME_PAGE_URL) {
 
   const onDidStopLoading = () => {
     tab.loading = false;
-    if (activeTabId === id) mainWindow.webContents.send('loading', false);
+    if (activeTabId === id) {
+      mainWindow.webContents.send('loading', false);
+      // The page finished loading — re-sync the chrome star (belt and
+      // suspenders on top of the did-navigate push).
+      pushActiveBookmarkState();
+    }
     emitTabsState();
   };
 
@@ -2131,6 +2406,15 @@ function createTab(initialTarget = HOME_PAGE_URL) {
       return;
     }
 
+    // Ctrl+D — bookmark (or un-bookmark) the current page. Exact combo only;
+    // preventDefault keeps the page's own Ctrl+D (bookmark this page) from
+    // firing, and no existing shortcut (Ctrl+T/W/Shift+N/H/J/F) is touched.
+    if ((input.key === 'd' || input.key === 'D' || input.code === 'KeyD') && !input.alt && !input.shift) {
+      event.preventDefault();
+      toggleBookmarkForTab(tab);
+      return;
+    }
+
     if (input.key === '=' || input.key === '+' || input.code === 'Equal' || input.code === 'NumpadAdd') {
       event.preventDefault();
       zoomInTab(tab);
@@ -2150,12 +2434,11 @@ function createTab(initialTarget = HOME_PAGE_URL) {
 
   const onPageFaviconUpdated = (_, favicons) => {
     try {
-      if (historyService && favicons && favicons.length > 0 && tab.url && !tab.isInternalHome && tab.url !== 'about:blank') {
-        const faviconUrl = typeof favicons[0] === 'string' ? favicons[0] : '';
-        if (faviconUrl) {
-          // Pass the actual page favicon URL to history
-          historyService.addHistoryEntry(tab.url, tab.title, faviconUrl, false);
-        }
+      const faviconUrl = (favicons && favicons.length > 0 && typeof favicons[0] === 'string') ? favicons[0] : '';
+      if (faviconUrl) tab.favicon = faviconUrl;
+      if (historyService && faviconUrl && tab.url && !tab.isInternalHome && tab.url !== 'about:blank') {
+        // Pass the actual page favicon URL to history
+        historyService.addHistoryEntry(tab.url, tab.title, faviconUrl, false);
       }
     } catch (e) { }
   };
@@ -2883,6 +3166,15 @@ function createWindow() {
       }
       return;
     }
+    // Ctrl+D — bookmark (or un-bookmark) the active page while browser chrome
+    // holds focus (address bar, tabs, etc.). Mirrors the per-tab handler so
+    // the shortcut works identically regardless of where keyboard focus is.
+    if ((input.key === 'd' || input.key === 'D' || input.code === 'KeyD') && !input.alt && !input.shift &&
+        (process.platform === 'darwin' ? input.meta : input.control)) {
+      event.preventDefault();
+      toggleBookmarkForTab(getActiveTab());
+      return;
+    }
   });
 
   // Belt-and-suspenders: some Electron/BrowserView builds surface the HTML
@@ -3108,6 +3400,10 @@ function updateOverlayBounds() {
     updateOverlaySuggestionBounds(activeOverlaySuggestions);
     return;
   }
+  if (activeStarPopup) {
+    updateStarPopupBounds();
+    return;
+  }
   // Never move the overlay while a popup close animation is still playing —
   // resizing now would teleport the still-visible popup to a default position.
   // The renderer signals popup-close-finished once the popup is hidden; only
@@ -3282,6 +3578,7 @@ function createOverlayWindow() {
   overlayWindow.on('blur', () => {
     if (activeDownloadsPanel && !isCursorOverRendererRect(activeDownloadsPanel.rect)) hideDownloadsPanel();
     if (activeAppMenu && !isCursorOverRendererRect(activeAppMenu.rect)) hideAppMenu();
+    if (activeStarPopup && !isCursorOverRendererRect(activeStarPopup.rect)) hideStarPopup();
     if (activeAboutDialog) hideAboutDialog();
   });
 }
@@ -3399,6 +3696,134 @@ function hideDownloadsPanel() {
 // screen bounds, sizes the overlay to exactly the menu rect, and forwards the
 // current browser state so the menu can enable/disable actions (Back/Forward,
 // zoom, fullscreen) to match the live browser.
+
+// ── STAR POPUP (Quick Access / Bookmarks chooser) ───────────
+// The star button in the chrome opens a tiny two-option popdown instead of
+// toggling the bookmark directly. Rendered by the existing overlay window
+// (same infrastructure as the downloads panel / app menu) so it always paints
+// above BrowserView content; anchored to the star button by the main
+// renderer. Only bookmarkable pages can open it (the star is disabled
+// elsewhere, and the show handler re-validates).
+const STAR_POPUP_WIDTH = 236;
+const STAR_POPUP_HEIGHT = 82;
+const STAR_POPUP_GAP = 6;
+
+function updateStarPopupBounds() {
+  if (!mainWindow || mainWindow.isDestroyed() || !overlayWindow || overlayWindow.isDestroyed()) return;
+  if (!activeStarPopup) return;
+  const rect = activeStarPopup.rect;
+  if (!rect || !Number.isFinite(rect.right) || !Number.isFinite(rect.bottom)) return;
+
+  const mainBounds = mainWindow.getContentBounds();
+  const [currentW] = mainWindow.getContentSize();
+  const PAD = 8;
+
+  // Right-align the popup with the star button's right edge (same as the
+  // downloads panel); clamp inside the window.
+  let left = Math.round(mainBounds.x + rect.right - STAR_POPUP_WIDTH);
+  left = Math.max(mainBounds.x + PAD, Math.min(left, mainBounds.x + Math.max(PAD, currentW - STAR_POPUP_WIDTH - PAD)));
+  const top = Math.round(mainBounds.y + rect.bottom + STAR_POPUP_GAP);
+  const maxH = Math.max(80, mainBounds.y + mainBounds.height - top - PAD);
+  const desiredH = activeStarPopup.measuredHeight || STAR_POPUP_HEIGHT;
+
+  const bounds = { x: left, y: top, width: STAR_POPUP_WIDTH, height: Math.min(desiredH, maxH) };
+  const prev = _lastStarPopupBounds;
+  if (!prev || bounds.x !== prev.x || bounds.y !== prev.y || bounds.width !== prev.width || bounds.height !== prev.height) {
+    _lastStarPopupBounds = bounds;
+    overlayWindow.setBounds(bounds);
+  }
+}
+
+function hideStarPopup() {
+  if (!activeStarPopup) return;
+  activeStarPopup = null;
+  _lastStarPopupBounds = null;
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  try { overlayWindow.setIgnoreMouseEvents(true, { forward: true }); } catch (e) { }
+  try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(false); } catch (e) { }
+  try { overlayWindow.webContents.send('star-popup-hide'); } catch (e) { }
+  // Echo to the main renderer so the star button's open state stays in sync
+  // when the popup is closed from the overlay side (Escape / webpage click).
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.webContents.send('star-popup-hide'); } catch (e) { }
+  }
+  // Same rule as every popup: never move the overlay while the popup is still
+  // visible (its close animation plays in the renderer). The renderer signals
+  // popup-close-finished once it is hidden, then the default bounds are
+  // restored (invisibly).
+  overlayClosePending = true;
+}
+
+// ── OVERLAY TOAST ──────────────────────────────────────────
+// Subtle, transient feedback (bookmark add/remove). Rendered by the overlay
+// window so it paints above BrowserView content; click-through so it never
+// intercepts input. Shares the overlay with every other popup — showing a
+// toast closes anything else first (all idempotent).
+const TOAST_WIDTH = 300;
+const TOAST_HEIGHT = 46;
+const TOAST_MARGIN = 24;
+const TOAST_DURATION_MS = 2200;
+
+function showOverlayToast(message) {
+  if (!message || !overlayWindow || overlayWindow.isDestroyed()) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  overlayClosePending = false;
+  activeOverlaySuggestions = null;
+  _lastOverlaySuggestionBounds = null;
+  activeAppMenu = null;
+  _lastAppMenuBounds = null;
+  activeDownloadsPanel = null;
+  activeAboutDialog = false;
+  activeStarPopup = null;
+  _lastStarPopupBounds = null;
+  try { overlayWindow.webContents.send('overlay-hide'); } catch (e) { }
+  try { overlayWindow.webContents.send('app-menu-hide'); } catch (e) { }
+  try { overlayWindow.webContents.send('about-hide'); } catch (e) { }
+  try { overlayWindow.webContents.send('downloads-panel-hide'); } catch (e) { }
+  try { overlayWindow.webContents.send('star-popup-hide'); } catch (e) { }
+  try { mainWindow.webContents.send('app-menu-hide'); } catch (e) { }
+  try { mainWindow.webContents.send('downloads-panel-hide'); } catch (e) { }
+  try { mainWindow.webContents.send('star-popup-hide'); } catch (e) { }
+
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+
+  const mainBounds = mainWindow.getContentBounds();
+  const [currentW, currentH] = mainWindow.getContentSize();
+  const bounds = {
+    x: Math.round(mainBounds.x + (currentW - TOAST_WIDTH) / 2),
+    y: Math.round(mainBounds.y + currentH - TOAST_HEIGHT - TOAST_MARGIN),
+    width: TOAST_WIDTH,
+    height: TOAST_HEIGHT,
+  };
+  activeToast = { message, at: Date.now() };
+
+  // Hide → position → reveal (same rule as every popup).
+  try { overlayWindow.hide(); } catch (e) { }
+  _lastOverlayBounds = null;
+  try { overlayWindow.setBounds(bounds); } catch (e) { }
+  try { overlayWindow.show(); } catch (e) { }
+  // The toast is purely informational — clicks pass straight through.
+  try { overlayWindow.setIgnoreMouseEvents(true, { forward: true }); } catch (e) { }
+  try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(false); } catch (e) { }
+  try { overlayWindow.webContents.send('toast-show', { message }); } catch (e) { }
+
+  _toastTimer = setTimeout(() => { hideOverlayToast(); }, TOAST_DURATION_MS);
+}
+
+function hideOverlayToast() {
+  if (!activeToast) return;
+  activeToast = null;
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  try { overlayWindow.webContents.send('toast-hide'); } catch (e) { }
+  // Another popup may have taken over the overlay while the toast was up — it
+  // owns the bounds now, so don't reclaim them.
+  if (activeAppMenu || activeDownloadsPanel || activeStarPopup || activeAboutDialog || activeOverlaySuggestions) return;
+  try { overlayWindow.hide(); } catch (e) { }
+  _lastOverlayBounds = null;
+  updateOverlayBounds();
+}
 
 // Snapshot of the current browser state the menu renders against.
 function getAppMenuState() {
@@ -3702,9 +4127,11 @@ ipcMain.on('navigate', (event, url) => {
 });
 
 ipcMain.on('open-history-entry', (event, url) => {
-  // The History page is loaded inside a tab BrowserView, so accept both
-  // trusted renderers and our own tab views (same policy as the history IPC).
-  if (!isTrustedIpcSender(event) && !(isTabBrowserView(event) && isInternalHistoryPage(event))) return;
+  // The History and Bookmarks pages are loaded inside tab BrowserViews, so
+  // accept both trusted renderers and our own tab views (same policy as the
+  // history/bookmarks IPC). Opening a bookmark behaves exactly like navigating
+  // to any other URL — it goes through createTab + switchToTab like history.
+  if (!isTrustedIpcSender(event) && !(isTabBrowserView(event) && (isInternalHistoryPage(event) || isInternalBookmarksPage(event)))) return;
   if (typeof url !== 'string' || !url.trim()) return;
 
   const target = normalizeNavigationTarget(url);
@@ -4240,6 +4667,23 @@ app.whenReady().then(async () => {
     console.error('[history] failed to initialize history service:', e);
   }
 
+  // Initialize the bookmark service (electron-store backed, shared with the
+  // FeatureStore — the same persistent storage layer the rest of the app uses).
+  try {
+    bookmarkService = new BookmarkService(store);
+  } catch (e) {
+    console.error('[bookmarks] failed to initialize bookmark service:', e);
+  }
+
+  // Initialize the Quick Access service — same electron-store layer, same
+  // shape as BookmarkService. Feeds the home/new-tab page's Quick Access
+  // section (seeded with the historical default dials on first run).
+  try {
+    quickAccessService = new QuickAccessService(store);
+  } catch (e) {
+    console.error('[quick-access] failed to initialize quick access service:', e);
+  }
+
   installTelemetryRequestBlocker(session.defaultSession);
   
   // Set app icon explicitly
@@ -4380,6 +4824,136 @@ app.whenReady().then(async () => {
     return historyService.getEntryCount();
   });
 
+  // ── BOOKMARKS IPC (accept from trusted windows AND the internal bookmarks page) ──
+
+  // Bookmarks IPC is only reachable from trusted windows and from the internal
+  // bookmarks page itself (its webContents URL must still be bookmarks.html).
+  // All data is validated in the main process — renderer input can never write
+  // directly into persistent storage.
+  const _isBookmarksTrusted = (event) => isTrustedIpcSender(event) || (isTabBrowserView(event) && isInternalBookmarksPage(event));
+
+  ipcMain.handle('bookmarks-get', (event) => {
+    if (!_isBookmarksTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!bookmarkService) return [];
+    return bookmarkService.getBookmarks();
+  });
+
+  ipcMain.handle('bookmarks-search', (event, query) => {
+    if (!_isBookmarksTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!bookmarkService) return [];
+    if (typeof query !== 'string') return [];
+    return bookmarkService.searchBookmarks(query);
+  });
+
+  ipcMain.handle('bookmarks-delete', (event, id) => {
+    if (!_isBookmarksTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!bookmarkService || !Number.isInteger(id)) return false;
+    const removed = bookmarkService.deleteBookmark(id);
+    if (removed) broadcastBookmarksState();
+    return removed;
+  });
+
+  // ── BOOKMARK STAR IPC (browser chrome only) ──────────────────
+  // The chrome star pulls the active tab's state to render itself and calls
+  // the toggle action on click. Both go through the exact same
+  // main-process BookmarkService and toggle path as Ctrl+D, so the star and
+  // Ctrl+D share one source of truth (and the same toast feedback).
+
+  ipcMain.handle('bookmarks-active-state', (event) => {
+    if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return getActiveBookmarkState();
+  });
+
+  ipcMain.handle('bookmarks-toggle-active', (event) => {
+    if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    toggleBookmarkForTab(getActiveTab());
+    return getActiveBookmarkState();
+  });
+
+  // Right-click menu for the bookmarks bar — a native Electron Menu (the same
+  // pattern as the page context menu in context-menu.js). The bookmark is
+  // re-validated here by id/URL before anything is shown or acted on.
+  ipcMain.on('bookmarks-context-menu', (event, payload) => {
+    if (!isTrustedIpcSender(event)) return;
+    if (!bookmarkService || !payload || typeof payload !== 'object') return;
+    const url = typeof payload.url === 'string' ? payload.url : '';
+    const id = payload.id;
+    if (!isAllowedHttpUrl(url) || !Number.isInteger(id)) return;
+    const bookmark = bookmarkService.getBookmarkById(id);
+    if (!bookmark || bookmark.url !== url) return;
+
+    const openInActiveTab = () => {
+      // Same validation path as the navigate/open-history-entry handlers.
+      const target = normalizeNavigationTarget(url);
+      if (!target) return;
+      if (isSiteBlocked(target)) {
+        try {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('adblock-event', {
+              url: target,
+              blocked: true,
+              rule: 'site-blocker',
+              resourceType: 'navigation',
+              domain: (() => { try { return new URL(target).hostname; } catch { return null; } })(),
+            });
+          }
+        } catch (e) { }
+        return;
+      }
+      const tab = getActiveTab();
+      if (tab) navigateTabToTarget(tab, target);
+    };
+
+    const menu = Menu.buildFromTemplate([
+      { label: 'Open', click: openInActiveTab },
+      { label: 'Open in New Tab', click: () => { const newTabId = createTab(url); switchToTab(newTabId); } },
+      { label: 'Open in New Window', click: () => openLinkInNewWindow(url) },
+      { type: 'separator' },
+      {
+        label: 'Delete Bookmark',
+        click: () => {
+          bookmarkService.deleteBookmark(id);
+          broadcastBookmarksState();
+        },
+      },
+    ]);
+    try {
+      menu.popup({ window: mainWindow });
+    } catch (e) { }
+  });
+
+  // ── QUICK ACCESS IPC (accept from trusted windows AND the internal home page) ──
+
+  // Quick Access IPC is only reachable from trusted windows and from the
+  // internal home page itself (its webContents URL must still be home.html).
+  // All data is validated in the main process — renderer input can never
+  // write directly into persistent storage. Incognito tabs never load
+  // home.html, so the Incognito window can never reach this store.
+  const _isQuickAccessTrusted = (event) => isTrustedIpcSender(event) || (isTabBrowserView(event) && isInternalHomePage(event));
+
+  ipcMain.handle('quick-access-get', (event) => {
+    if (!_isQuickAccessTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!quickAccessService) return [];
+    return quickAccessService.getEntries();
+  });
+
+  ipcMain.handle('quick-access-delete', (event, id) => {
+    if (!_isQuickAccessTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!quickAccessService || !Number.isInteger(id)) return false;
+    const removed = quickAccessService.deleteEntry(id);
+    if (removed) broadcastQuickAccessState();
+    return removed;
+  });
+
+  // Toggle the active page's Quick Access entry (star popup action). Same
+  // main-process QuickAccessService and toggle path as the star popup's
+  // "Add/Remove from Quick Access" row.
+  ipcMain.handle('quick-access-toggle-active', (event) => {
+    if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    toggleQuickAccessForTab(getActiveTab());
+    return getActiveBookmarkState();
+  });
+
   // ── DOWNLOADS IPC (accept from trusted windows AND the internal downloads page) ──
 
   // Downloads IPC is only reachable from trusted windows and from the internal
@@ -4484,17 +5058,21 @@ app.whenReady().then(async () => {
     const rect = payload && payload.rect && typeof payload.rect === 'object' ? payload.rect : null;
     if (!rect || !Number.isFinite(rect.right) || !Number.isFinite(rect.bottom)) return;
 
-    // The panel, the omnibox suggestions, and the app menu share the overlay
-    // — never more than one at a time. An explicit show always repositions
-    // the overlay, so any pending close freeze ends.
+    // The panel, the omnibox suggestions, the app menu, and the star popup
+    // share the overlay — never more than one at a time. An explicit show
+    // always repositions the overlay, so any pending close freeze ends.
     overlayClosePending = false;
     activeOverlaySuggestions = null;
     _lastOverlaySuggestionBounds = null;
     activeAppMenu = null;
     _lastAppMenuBounds = null;
+    activeStarPopup = null;
+    _lastStarPopupBounds = null;
     try { overlayWindow.webContents.send('overlay-hide'); } catch (e) { }
     try { overlayWindow.webContents.send('app-menu-hide'); } catch (e) { }
+    try { overlayWindow.webContents.send('star-popup-hide'); } catch (e) { }
     try { mainWindow.webContents.send('app-menu-hide'); } catch (e) { }
+    try { mainWindow.webContents.send('star-popup-hide'); } catch (e) { }
 
     activeDownloadsPanel = { rect, at: Date.now() };
     // Hide → position → reveal (same rule as the app menu).
@@ -4514,6 +5092,67 @@ app.whenReady().then(async () => {
     hideDownloadsPanel();
   });
 
+  // ── STAR POPUP IPC (browser chrome only) ──────────────────
+  // The main renderer anchors the popup by sending the star button's rect;
+  // main sizes the overlay to the popup and forwards the live page state
+  // (bookmarked / inQuickAccess) so the two rows read the current state.
+  ipcMain.on('show-star-popup', (event, payload) => {
+    if (!isTrustedIpcSender(event)) return;
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    const rect = payload && payload.rect && typeof payload.rect === 'object' ? payload.rect : null;
+    if (!rect || !Number.isFinite(rect.right) || !Number.isFinite(rect.bottom)) return;
+
+    // Only bookmarkable pages can open the popup (the star is disabled
+    // everywhere else); re-validate here so a stale renderer can't bypass it.
+    const state = getActiveBookmarkState();
+    if (!state.bookmarkable) return;
+
+    // The popup, the omnibox suggestions, the app menu, the downloads panel,
+    // and the About dialog share the overlay — never more than one at a time.
+    overlayClosePending = false;
+    activeOverlaySuggestions = null;
+    _lastOverlaySuggestionBounds = null;
+    activeAppMenu = null;
+    _lastAppMenuBounds = null;
+    activeDownloadsPanel = null;
+    activeAboutDialog = false;
+    try { overlayWindow.webContents.send('overlay-hide'); } catch (e) { }
+    try { overlayWindow.webContents.send('app-menu-hide'); } catch (e) { }
+    try { overlayWindow.webContents.send('downloads-panel-hide'); } catch (e) { }
+    try { overlayWindow.webContents.send('about-hide'); } catch (e) { }
+    try { mainWindow.webContents.send('app-menu-hide'); } catch (e) { }
+    try { mainWindow.webContents.send('downloads-panel-hide'); } catch (e) { }
+
+    activeStarPopup = { rect, at: Date.now() };
+    // Hide → position → reveal (same rule as every popup).
+    try { overlayWindow.hide(); } catch (e) { }
+    updateStarPopupBounds();
+    try { overlayWindow.show(); } catch (e) { }
+    try { overlayWindow.setIgnoreMouseEvents(false); } catch (e) { }
+    try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(true); } catch (e) { }
+    try { overlayWindow.webContents.send('star-popup-show', { rect, state }); } catch (e) { }
+    // Echo to the main renderer so the star button's open state stays in sync.
+    try { mainWindow.webContents.send('star-popup-show', { rect }); } catch (e) { }
+    try { overlayWindow.focus(); } catch (e) { }
+  });
+
+  ipcMain.on('hide-star-popup', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    hideStarPopup();
+  });
+
+  // The overlay measures the popup's exact natural height after render and
+  // reports it so the overlay is sized to fit (same pattern as the app menu).
+  ipcMain.on('star-popup-measure', (event, payload) => {
+    if (!isTrustedIpcSender(event)) return;
+    if (!activeStarPopup) return;
+    const height = payload && Number.isFinite(payload.height) ? Math.round(payload.height) : 0;
+    if (height > 0 && height !== activeStarPopup.measuredHeight) {
+      activeStarPopup.measuredHeight = height;
+      updateStarPopupBounds();
+    }
+  });
+
   // ── APP MENU IPC ─────────────────────────────────────────
   // The main renderer anchors the menu by sending the menu button's rect; main
   // sizes the overlay to the menu, computes the current browser state, and
@@ -4524,15 +5163,20 @@ app.whenReady().then(async () => {
     const rect = payload && payload.rect && typeof payload.rect === 'object' ? payload.rect : null;
     if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.bottom)) return;
 
-    // The menu, the omnibox suggestions, the downloads panel, and the About
-    // dialog share the overlay — never more than one at a time. An explicit
-    // show always repositions the overlay, so any pending close freeze ends.
+    // The menu, the omnibox suggestions, the downloads panel, the star popup,
+    // and the About dialog share the overlay — never more than one at a time.
+    // An explicit show always repositions the overlay, so any pending close
+    // freeze ends.
     overlayClosePending = false;
     activeOverlaySuggestions = null;
     _lastOverlaySuggestionBounds = null;
     activeAboutDialog = false;
+    activeStarPopup = null;
+    _lastStarPopupBounds = null;
     try { overlayWindow.webContents.send('overlay-hide'); } catch (e) { }
     try { overlayWindow.webContents.send('about-hide'); } catch (e) { }
+    try { overlayWindow.webContents.send('star-popup-hide'); } catch (e) { }
+    try { mainWindow.webContents.send('star-popup-hide'); } catch (e) { }
 
     activeAppMenu = { rect, at: Date.now() };
     // Hide → position → reveal: the overlay's geometry only ever changes while
@@ -4554,6 +5198,14 @@ app.whenReady().then(async () => {
     hideAppMenu();
   });
 
+  // The overlay renderer reports that the toast finished its display cycle
+  // (its fade-out completed), so main can reclaim the overlay bounds. The
+  // main-side auto-hide timer is a safety net for the same transition.
+  ipcMain.on('toast-hide', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    hideOverlayToast();
+  });
+
   // The overlay renderer reports that a popup's close animation finished (or
   // the popup was hidden instantly). Only now is it safe to restore the
   // overlay's default full-window bounds — resizing earlier would have
@@ -4562,7 +5214,10 @@ app.whenReady().then(async () => {
   ipcMain.on('popup-close-finished', (event) => {
     if (!isTrustedIpcSender(event)) return;
     overlayClosePending = false;
-    if (activeAppMenu || activeDownloadsPanel || activeAboutDialog || activeOverlaySuggestions) return;
+    // The toast owns the overlay while it is up (its close of other popups can
+    // race the toast's own positioning), so a late popup-close notification
+    // must never reclaim the overlay's bounds.
+    if (activeAppMenu || activeDownloadsPanel || activeStarPopup || activeAboutDialog || activeOverlaySuggestions || activeToast) return;
     // The popup is fully hidden. Hide the overlay window itself before
     // restoring its default bounds, so the resize can never paint a stale
     // popup frame at an intermediate (far-left) position. The next popup
@@ -4595,9 +5250,13 @@ app.whenReady().then(async () => {
     _lastAppMenuBounds = null;
     activeOverlaySuggestions = null;
     _lastOverlaySuggestionBounds = null;
+    activeStarPopup = null;
+    _lastStarPopupBounds = null;
     try { overlayWindow.webContents.send('overlay-hide'); } catch (e) { }
     try { overlayWindow.webContents.send('app-menu-hide'); } catch (e) { }
+    try { overlayWindow.webContents.send('star-popup-hide'); } catch (e) { }
     try { mainWindow.webContents.send('app-menu-hide'); } catch (e) { }
+    try { mainWindow.webContents.send('star-popup-hide'); } catch (e) { }
 
     activeAboutDialog = true;
     // Hide → position (full window) → reveal: same rule as every popup.

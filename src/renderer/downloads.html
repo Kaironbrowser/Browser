@@ -407,6 +407,10 @@
   const btnModalConfirm = document.getElementById('btn-modal-confirm');
 
   let allDownloads = [];
+  // id -> { el, state, status, fill, time, actions } — existing DOM rows.
+  // Progress pushes look the row up by stable download id and update it in
+  // place, so the list never rebuilds, flashes, or jumps during progress.
+  const rowMap = new Map();
 
   // ── ICONS / FORMATTING ──────────────────────────────────
   const ICONS = {
@@ -507,6 +511,10 @@
     item.setAttribute('role', 'listitem');
     item.tabIndex = -1;
 
+    // Mutable row parts are captured here so progress pushes can update them
+    // in place — the row element itself is never rebuilt.
+    const refs = { el: item, state: d.state, status: null, fill: null, time: null, actions: null };
+
     const icon = document.createElement('div');
     icon.className = 'download-icon';
     icon.innerHTML = ICONS[fileKind(d)] || ICONS.document;
@@ -534,10 +542,12 @@
     status.className = 'dl-status' + (d.state === 'failed' ? ' failed' : '');
     status.textContent = statusText(d);
     meta.appendChild(status);
+    refs.status = status;
     const time = document.createElement('span');
     time.className = 'dl-time';
     time.textContent = d.completedAt ? formatTime(d.completedAt) : formatTime(d.startedAt);
     meta.appendChild(time);
+    refs.time = time;
     body.appendChild(meta);
 
     if (d.state === 'downloading' || d.state === 'paused') {
@@ -551,10 +561,12 @@
       fill.style.width = `${pct}%`;
       bar.appendChild(fill);
       body.appendChild(bar);
+      refs.fill = fill;
     }
 
     const actions = document.createElement('div');
     actions.className = 'download-actions';
+    refs.actions = actions;
     if (d.state === 'downloading') {
       actions.appendChild(makeActionBtn(ICON_PAUSE, 'Pause download', null, () => window.kairon.pauseDownload(d.id)));
       actions.appendChild(makeActionBtn(ICON_CANCEL, 'Cancel download', 'danger', () => window.kairon.cancelDownload(d.id)));
@@ -580,28 +592,126 @@
       }
     });
 
-    return item;
+    return refs;
+  }
+
+  // Incremental update of an existing row. Progress pushes only touch the
+  // status text and the progress fill; a state transition (completed /
+  // failed / cancelled / paused …) restructures the progress bar and action
+  // buttons in place, never replacing the row element itself.
+  function updateItem(refs, d) {
+    const prevState = refs.state;
+    refs.state = d.state;
+
+    if (prevState !== d.state) {
+      refs.el.classList.toggle('openable', isOpenable(d));
+
+      const body = refs.el.querySelector('.download-body');
+      const bar = refs.el.querySelector('.download-progress');
+      const wantBar = d.state === 'downloading' || d.state === 'paused';
+      if (wantBar && !bar) {
+        const barEl = document.createElement('div');
+        barEl.className = 'download-progress';
+        const fill = document.createElement('div');
+        fill.className = 'download-progress-fill';
+        const pct = d.totalBytes > 0 && Number.isFinite(d.receivedBytes)
+          ? Math.min(100, Math.max(0, Math.round((d.receivedBytes / d.totalBytes) * 100)))
+          : 0;
+        fill.style.width = `${pct}%`;
+        barEl.appendChild(fill);
+        body.appendChild(barEl);
+        refs.fill = fill;
+      } else if (!wantBar && bar) {
+        bar.remove();
+        refs.fill = null;
+      }
+
+      if (refs.time) {
+        refs.time.textContent = d.completedAt ? formatTime(d.completedAt) : formatTime(d.startedAt);
+      }
+
+      refs.actions.innerHTML = '';
+      if (d.state === 'downloading') {
+        refs.actions.appendChild(makeActionBtn(ICON_PAUSE, 'Pause download', null, () => window.kairon.pauseDownload(d.id)));
+        refs.actions.appendChild(makeActionBtn(ICON_CANCEL, 'Cancel download', 'danger', () => window.kairon.cancelDownload(d.id)));
+      } else if (d.state === 'paused' || d.state === 'interrupted') {
+        refs.actions.appendChild(makeActionBtn(ICON_RESUME, 'Resume download', null, () => window.kairon.resumeDownload(d.id)));
+        refs.actions.appendChild(makeActionBtn(ICON_CANCEL, 'Cancel download', 'danger', () => window.kairon.cancelDownload(d.id)));
+      } else if (d.savePath) {
+        refs.actions.appendChild(makeActionBtn(ICON_FOLDER, 'Show in folder', null, () => window.kairon.showDownloadInFolder(d.id)));
+      }
+    }
+
+    if (refs.status) {
+      refs.status.textContent = statusText(d);
+      refs.status.classList.toggle('failed', d.state === 'failed');
+    }
+    if (refs.fill) {
+      const pct = d.totalBytes > 0 && Number.isFinite(d.receivedBytes)
+        ? Math.min(100, Math.max(0, Math.round((d.receivedBytes / d.totalBytes) * 100)))
+        : 0;
+      refs.fill.style.width = `${pct}%`;
+    }
+  }
+
+  // Full reconciliation: builds missing rows, removes stale rows, and keeps
+  // DOM order in step with the pushed list. Existing rows are updated in
+  // place — a progress push alone never moves or rebuilds them.
+  function syncList(list) {
+    const countText = `${list.length} ${list.length === 1 ? 'item' : 'items'}`;
+    if (entryCountEl.textContent !== countText) entryCountEl.textContent = countText;
+
+    const liveIds = new Set();
+    for (const d of list) liveIds.add(d.id);
+    for (const [id, refs] of rowMap) {
+      if (!liveIds.has(id)) {
+        refs.el.remove();
+        rowMap.delete(id);
+      }
+    }
+
+    const empty = contentEl.querySelector('#empty-state');
+    if (!list.length) {
+      if (!empty) {
+        const e = document.createElement('div');
+        e.id = 'empty-state';
+        e.innerHTML =
+          '<div id="empty-illustration">' + (ICONS.archive || '') + '</div>' +
+          '<div id="empty-state-text">' +
+            '<h3>Nothing downloaded yet</h3>' +
+            '<p>Files you download while browsing Kairon will show up here, along with your recent download history.</p>' +
+            '<p class="tip">Clearing this list never deletes files from your computer.</p>' +
+          '</div>';
+        contentEl.appendChild(e);
+      }
+      return;
+    }
+    if (empty) empty.remove();
+
+    let prevEl = null;
+    for (const d of list) {
+      let refs = rowMap.get(d.id);
+      if (!refs) {
+        refs = buildItem(d);
+        rowMap.set(d.id, refs);
+      } else {
+        updateItem(refs, d);
+      }
+      const el = refs.el;
+      if (prevEl) {
+        if (el.previousSibling !== prevEl) {
+          if (prevEl.nextSibling) contentEl.insertBefore(el, prevEl.nextSibling);
+          else contentEl.appendChild(el);
+        }
+      } else if (contentEl.firstChild !== el) {
+        contentEl.insertBefore(el, contentEl.firstChild);
+      }
+      prevEl = el;
+    }
   }
 
   function render() {
-    contentEl.innerHTML = '';
-    entryCountEl.textContent = `${allDownloads.length} ${allDownloads.length === 1 ? 'item' : 'items'}`;
-
-    if (!allDownloads.length) {
-      const empty = document.createElement('div');
-      empty.id = 'empty-state';
-      empty.innerHTML =
-        '<div id="empty-illustration">' + (ICONS.archive || '') + '</div>' +
-        '<div id="empty-state-text">' +
-          '<h3>Nothing downloaded yet</h3>' +
-          '<p>Files you download while browsing Kairon will show up here, along with your recent download history.</p>' +
-          '<p class="tip">Clearing this list never deletes files from your computer.</p>' +
-        '</div>';
-      contentEl.appendChild(empty);
-      return;
-    }
-
-    for (const d of allDownloads) contentEl.appendChild(buildItem(d));
+    syncList(allDownloads);
   }
 
   // ── CLEAR CONFIRMATION ───────────────────────────────────

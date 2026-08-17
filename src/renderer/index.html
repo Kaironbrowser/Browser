@@ -152,6 +152,18 @@
         </div>
       </div>
 
+      <!-- Bookmark star — sits immediately right of the address bar. Outline
+           star when the page is not bookmarked, filled star when it is.
+           Clicking opens the Quick Access / Bookmarks popdown (overlay).
+           Disabled on internal/error/non-http pages (ui.js sets .active and
+           disabled from the main-process bookmark state). Hidden in the
+           Incognito window, which must never touch normal-browser bookmarks. -->
+      <button class="nav-btn" id="btn-bookmark" title="Quick Access & Bookmarks" aria-label="Quick Access & Bookmarks" aria-pressed="false" aria-haspopup="menu">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 1.5l1.8 4.6 4.7.3-3.7 3 1.3 4.6L8 11.2l-4.1 2.8 1.3-4.6-3.7-3 4.7-.3z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+        </svg>
+      </button>
+
       <!-- Incognito state indicator — hidden in the normal browser, shown only
            when the window loads with ?incognito=1 (body[data-incognito] set by
            ui.js). The Incognito window reuses this exact same chrome. -->
@@ -188,6 +200,13 @@
         </svg>
       </button>
     </div>
+
+    <!-- Bookmarks bar — compact strip directly below the chrome toolbar.
+         Hidden when no bookmarks exist and in the Incognito window. Lives
+         inside #center-col, so when it appears the status strip moves down and
+         the BrowserView repositions below it (same layout-metrics flow as the
+         find bar) — the bar always sits above the webpage. -->
+    <div id="bookmarks-bar" class="hidden" role="toolbar" aria-label="Bookmarks bar"></div>
 
     <!-- Find bar — hidden by default; opened from the app menu (Find) or
          Ctrl+F. Lives inside #center-col so the BrowserView shifts down when

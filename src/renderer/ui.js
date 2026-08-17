@@ -140,6 +140,8 @@ export function createUiController(kairon, store, onLayoutChange) {
   const btnDownloads    = document.getElementById('btn-downloads');
   const downloadsBadge  = document.getElementById('downloads-badge');
   const btnAppMenu      = document.getElementById('btn-app-menu');
+  const btnBookmark     = document.getElementById('btn-bookmark');
+  const bookmarksBar    = document.getElementById('bookmarks-bar');
   const findBar         = document.getElementById('find-bar');
   const findInput       = document.getElementById('find-input');
   const findCount       = document.getElementById('find-count');
@@ -177,6 +179,8 @@ export function createUiController(kairon, store, onLayoutChange) {
     setTimeout(_reanchorDownloadsPanel, 380);
     setTimeout(_reanchorAppMenu, 60);
     setTimeout(_reanchorAppMenu, 380);
+    setTimeout(_reanchorStarPopup, 60);
+    setTimeout(_reanchorStarPopup, 380);
     setTimeout(() => document.body.classList.remove('layout-animating'), 360);
   }
 
@@ -262,6 +266,7 @@ export function createUiController(kairon, store, onLayoutChange) {
 
   function _openDownloadsPanel() {
     _closeAppMenu();
+    _closeStarPopup();
     downloadsPanelOpen = true;
     btnDownloads.classList.add('active');
     btnDownloads.setAttribute('aria-expanded', 'true');
@@ -314,6 +319,7 @@ export function createUiController(kairon, store, onLayoutChange) {
   function _openAppMenu() {
     if (appMenuOpen) return;
     _closeDownloadsPanel();
+    _closeStarPopup();
     appMenuOpen = true;
     btnAppMenu.classList.add('active');
     btnAppMenu.setAttribute('aria-expanded', 'true');
@@ -333,6 +339,52 @@ export function createUiController(kairon, store, onLayoutChange) {
     else _openAppMenu();
   }
 
+  // ── STAR POPUP (Quick Access / Bookmarks chooser) ────────
+  // Clicking the star now opens a tiny two-option popdown (rendered by the
+  // existing overlay window) instead of toggling the bookmark directly. This
+  // controller only anchors it (star button rect), tracks open state, and
+  // keeps the button's pressed look in sync with the overlay's life cycle.
+  // The star's own filled/outline state still reflects "bookmarked" only
+  // (unchanged) — the popup's rows carry the state-aware labels.
+  let starPopupOpen = false;
+
+  function _getStarButtonRect() {
+    const r = btnBookmark.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height };
+  }
+
+  // Re-anchor after the toolbar layout changes (window resize, tab-position
+  // switch, rail collapse) so the popup stays glued to the button.
+  function _reanchorStarPopup() {
+    if (!starPopupOpen || !btnBookmark) return;
+    kairon.showStarPopup({ rect: _getStarButtonRect() });
+  }
+
+  function _openStarPopup() {
+    if (starPopupOpen) return;
+    _closeDownloadsPanel();
+    _closeAppMenu();
+    starPopupOpen = true;
+    // The star's .active class means "bookmarked" (filled star) — use a
+    // separate class for the pressed-open look so the two never conflict.
+    btnBookmark.classList.add('star-open');
+    btnBookmark.setAttribute('aria-expanded', 'true');
+    kairon.showStarPopup({ rect: _getStarButtonRect() });
+  }
+
+  function _closeStarPopup() {
+    if (!starPopupOpen) return;
+    starPopupOpen = false;
+    btnBookmark.classList.remove('star-open');
+    btnBookmark.removeAttribute('aria-expanded');
+    kairon.hideStarPopup();
+  }
+
+  function _toggleStarPopup() {
+    if (starPopupOpen) _closeStarPopup();
+    else _openStarPopup();
+  }
+
   // ── FIND BAR ───────────────────────────────────────────────
   // A compact find-in-page bar in the chrome. It lives inside #center-col so
   // the BrowserView shifts down when visible; layout metrics follow via the
@@ -343,6 +395,7 @@ export function createUiController(kairon, store, onLayoutChange) {
   function _openFindBar() {
     _closeAppMenu();
     _closeDownloadsPanel();
+    _closeStarPopup();
     if (findBarOpen) {
       findInput.focus();
       findInput.select();
@@ -381,6 +434,96 @@ export function createUiController(kairon, store, onLayoutChange) {
   }
 
   // ── NAV STATE ──────────────────────────────────────────────
+  // ── BOOKMARK STAR ──────────────────────────────────────────
+  // The star renders the main-process bookmark state (same source of truth as
+  // Ctrl+D). Pulled on URL/loading changes; pushed on bookmark mutations
+  // (bookmark-state-changed) so Ctrl+D, the button, and deletes elsewhere all
+  // update it immediately. bookmarked → filled star; bookmarkable:false
+  // (internal/error/non-http pages) → disabled.
+  //
+  // Sync token: every state source (pull request, push receipt, toggle
+  // response) takes the next token, and a state is rendered only while its
+  // token is still the latest. This rejects stale async bookmarks-active-state
+  // responses that were computed BEFORE a newer mutation/navigation: the URL
+  // of such a response matches the current page (e.g. revisiting a previously
+  // bookmarked URL), so a URL-only guard can't tell it apart from the fresh
+  // state — the token can. The URL guard below is kept as a second defense.
+  let _bookmarkSyncToken = 0;
+  // Last activeTabId seen in tabs-state, used to re-sync the star exactly when
+  // the active tab actually changes (covers tab switching independently of the
+  // url-changed/push signals).
+  let _lastStarActiveTabId = null;
+
+  function _applyBookmarkStar(state, token) {
+    // Incognito never touches normal-browser bookmarks — the star is hidden
+    // there and must stay inert.
+    if (IS_INCOGNITO || !btnBookmark || !state) return;
+    // Stale async reply: a newer pull/push/toggle already happened since this
+    // state was produced — never let it overwrite the current URL's state.
+    if (typeof token === 'number' && token !== _bookmarkSyncToken) return;
+    // URL defense: if the active tab moved on before the reply arrived, its
+    // URL no longer matches the state we asked about.
+    const active = store.getActiveTab();
+    if (state.url && active && state.url !== active.url) return;
+    const enabled = !!state.bookmarkable;
+    const bookmarked = enabled && !!state.bookmarked;
+    btnBookmark.disabled = !enabled;
+    btnBookmark.classList.toggle('active', bookmarked);
+    btnBookmark.setAttribute('aria-pressed', bookmarked ? 'true' : 'false');
+    btnBookmark.title = !enabled
+      ? 'Bookmarks are not available on this page'
+      : 'Quick Access & Bookmarks (Ctrl+D bookmarks)';
+  }
+
+  function _syncBookmarkStar() {
+    if (IS_INCOGNITO) return;
+    const token = ++_bookmarkSyncToken;
+    kairon.getActiveBookmarkState()
+      .then((state) => _applyBookmarkStar(state, token))
+      .catch(() => {});
+  }
+
+  // ── BOOKMARKS BAR ──────────────────────────────────────────
+  // Compact horizontal strip below the chrome toolbar, rendered from the same
+  // BookmarkService list the star and Ctrl+D use (no second storage). Fed by
+  // the bookmarks-updated push and a boot pull. Hidden entirely when empty;
+  // hidden (and inert) in Incognito, which must never read the normal store.
+  let _bookmarksBarOpen = false;
+
+  function _buildBookmarkBarItem(bm) {
+    const faviconUrl = (bm.favicon && typeof bm.favicon === 'string') ? bm.favicon : '';
+    const img = faviconUrl
+      ? `<img src="${faviconUrl.replace(/"/g, '&quot;')}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'">`
+      : '';
+    return '<button type="button" class="bookmarks-bar-item" data-url="' + bm.url.replace(/"/g, '&quot;') + '" data-id="' + bm.id + '" title="' + bm.url.replace(/"/g, '&quot;') + '">'
+      + img
+      + '<span class="bb-fallback"' + (img ? ' style="display:none"' : '') + '>' + ICON_GLOBE + '</span>'
+      + '<span class="bb-title">' + sanitizeText(bm.title || bm.url) + '</span>'
+      + '</button>';
+  }
+
+  function _renderBookmarksBar(list) {
+    if (IS_INCOGNITO || !bookmarksBar) return;
+    const items = Array.isArray(list) ? list : [];
+    const wasOpen = _bookmarksBarOpen;
+    if (items.length === 0) {
+      bookmarksBar.classList.add('hidden');
+      bookmarksBar.innerHTML = '';
+      _bookmarksBarOpen = false;
+    } else {
+      bookmarksBar.innerHTML = items.map(_buildBookmarkBarItem).join('');
+      bookmarksBar.classList.remove('hidden');
+      _bookmarksBarOpen = true;
+    }
+    // The strip appeared/disappeared, so the chrome column height changed —
+    // re-publish layout metrics immediately to slide the BrowserView with it
+    // (the ResizeObserver would do this on a 150ms debounce; this makes the
+    // bar feel instant).
+    if (wasOpen !== _bookmarksBarOpen && typeof onLayoutChange === 'function') {
+      onLayoutChange();
+    }
+  }
+
   function _renderNavigationState() {
     const tab = store.getActiveTab();
     if (!tab) return;
@@ -1285,8 +1428,15 @@ export function createUiController(kairon, store, onLayoutChange) {
   // ── PUBLIC CALLBACKS ────────────────────────────────────────
   function onTabsState(payload) {
     store.applyTabsState(payload);
+    const nextId = payload && payload.activeTabId;
+    const switched = nextId !== _lastStarActiveTabId;
+    _lastStarActiveTabId = nextId;
     _renderNavigationState();
     _renderTabs();
+    // The active tab actually changed — re-sync the star from main so tab
+    // switching refreshes the bookmark state even if the url-changed sync was
+    // skipped (same-URL switch) or its response raced.
+    if (switched) _syncBookmarkStar();
   }
 
   function onUrlChanged(url) {
@@ -1298,6 +1448,9 @@ export function createUiController(kairon, store, onLayoutChange) {
     store.updateActiveTabPatch({ favicon: getFaviconUrl(nextUrl) });
     _renderNavigationState();
     _renderTabs();
+    // The page changed — re-sync the bookmark star from main (its normalized
+    // URL is the single source of truth for the bookmarked state).
+    _syncBookmarkStar();
   }
 
   function onTitleChanged(title) {
@@ -1316,6 +1469,9 @@ export function createUiController(kairon, store, onLayoutChange) {
     store.updateActiveTabPatch({ loading: nextLoading });
     _renderNavigationState();
     _renderTabs();
+    // Page finished loading — re-sync the star (a commit may have resolved
+    // the final URL after the earlier url-changed push).
+    if (!nextLoading) _syncBookmarkStar();
   }
 
   function onAdblockEvent(payload) {
@@ -1368,6 +1524,57 @@ export function createUiController(kairon, store, onLayoutChange) {
     btnZoomIn?.addEventListener('click',    () => kairon.zoomIn());
     btnZoomReset?.addEventListener('click', () => kairon.resetZoom());
 
+    // ── BOOKMARK STAR ────────────────────────────────────────
+    // Click opens the Quick Access / Bookmarks popdown (the popup's rows run
+    // the actual add/remove through the same main-process services as Ctrl+D).
+    // Clicking the star again while open closes it; Escape and outside clicks
+    // close it too.
+    btnBookmark?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (btnBookmark.disabled) return;
+      _toggleStarPopup();
+    });
+    // Push updates: Ctrl+D, bookmark deletes elsewhere, etc. — always the
+    // authoritative current state, applied with a fresh token. Quick Access
+    // toggles also flow through here (the combined state includes
+    // inQuickAccess, kept fresh so the next popup open reads the right rows).
+    kairon.onBookmarkStateChanged((state) => _applyBookmarkStar(state, ++_bookmarkSyncToken));
+
+    // Keep the star's pressed look in sync when the popup is opened or closed
+    // from the overlay side (Escape / row action / overlay blur).
+    kairon.onStarPopupShow(() => {
+      starPopupOpen = true;
+      btnBookmark.classList.add('star-open');
+      btnBookmark.setAttribute('aria-expanded', 'true');
+    });
+    kairon.onStarPopupHide(() => {
+      starPopupOpen = false;
+      btnBookmark.classList.remove('star-open');
+      btnBookmark.removeAttribute('aria-expanded');
+    });
+
+    // ── BOOKMARKS BAR ────────────────────────────────────────
+    // Click opens the bookmark in the ACTIVE tab (same navigate path as the
+    // address bar); right-click opens a native menu (Open / New Tab /
+    // New Window / Delete) shown by main.
+    bookmarksBar?.addEventListener('click', (e) => {
+      const btn = e.target.closest && e.target.closest('.bookmarks-bar-item');
+      if (!btn) return;
+      const url = btn.dataset.url;
+      if (url) kairon.navigate(url);
+    });
+    bookmarksBar?.addEventListener('contextmenu', (e) => {
+      const btn = e.target.closest && e.target.closest('.bookmarks-bar-item');
+      if (!btn) return;
+      e.preventDefault();
+      kairon.showBookmarkContextMenu({ url: btn.dataset.url, id: Number(btn.dataset.id) });
+    });
+    // Live list — same push the Bookmarks page consumes, so Ctrl+D, the star
+    // button, and deletes elsewhere update the bar immediately.
+    kairon.onBookmarksUpdated((list) => _renderBookmarksBar(list));
+    // Boot pull so the bar renders before any push arrives (persisted list).
+    kairon.getBookmarks().then(_renderBookmarksBar).catch(() => {});
+
     addressBar.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         const val = addressBar.value.trim();
@@ -1385,6 +1592,7 @@ export function createUiController(kairon, store, onLayoutChange) {
     addressBar.addEventListener('focus', () => {
       _closeDownloadsPanel();
       _closeAppMenu();
+      _closeStarPopup();
       requestAnimationFrame(() => addressBar.select());
       _showSuggestions(addressBar.value);
     });
@@ -1520,11 +1728,15 @@ export function createUiController(kairon, store, onLayoutChange) {
     // Any click outside the Downloads button closes the panel. Clicks on the
     // panel itself land in the overlay window, and clicks on a webpage blur
     // the overlay (main closes it there) — this covers the chrome area. Same
-    // model for the app menu button.
+    // model for the app menu button and the star popup.
     document.addEventListener('click', (e) => {
       if (appMenuOpen) {
         if (btnAppMenu && e.target && btnAppMenu.contains(e.target)) return;
         _closeAppMenu();
+      }
+      if (starPopupOpen) {
+        if (btnBookmark && e.target && btnBookmark.contains(e.target)) return;
+        _closeStarPopup();
       }
       if (!downloadsPanelOpen) return;
       if (btnDownloads && e.target && btnDownloads.contains(e.target)) return;
@@ -1534,6 +1746,7 @@ export function createUiController(kairon, store, onLayoutChange) {
     window.addEventListener('resize', () => {
       _reanchorDownloadsPanel();
       _reanchorAppMenu();
+      _reanchorStarPopup();
     });
 
     kairon.onDownloadsUpdated((list) => {
@@ -1557,6 +1770,10 @@ export function createUiController(kairon, store, onLayoutChange) {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && appMenuOpen) {
         _closeAppMenu();
+        return;
+      }
+      if (e.key === 'Escape' && starPopupOpen) {
+        _closeStarPopup();
         return;
       }
       if (e.key === 'Escape' && downloadsPanelOpen) {

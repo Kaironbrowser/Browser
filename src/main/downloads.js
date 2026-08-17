@@ -14,8 +14,10 @@
 //
 //  Persistence: completed (and failed/interrupted) entries are
 //  stored in electron-store under downloads.history.v1 so the
-//  downloads list survives restarts. Clearing the list only
-//  removes entries — files on disk are never deleted. The chosen
+//  downloads list survives restarts. Cancelled entries are kept
+//  in-session only (never persisted) so the UI can show "Cancelled"
+//  until the list is cleared. Clearing the list only removes entries
+//  — files on disk are never deleted. The chosen
 //  download directory is stored in the settings FeatureStore
 //  (feature 'downloadManager', setting 'defaultPath') so it
 //  survives restarts and participates in export/import/reset.
@@ -112,6 +114,9 @@ class DownloadManager {
     this._live = new Map();
     // id -> record — persisted + in-session completed/failed entries (no DownloadItem).
     this._history = this._loadHistory();
+    // id -> record — terminal cancelled entries kept in-session only (never
+    // persisted) so the panel/page can show "Cancelled" until cleared.
+    this._cancelled = [];
 
     // id generator: continues above any persisted ids so ids never collide.
     let maxId = 0;
@@ -342,11 +347,16 @@ class DownloadManager {
         r.etaSeconds = null;
 
         // Persist terminal entries that represent real files (completed) or
-        // real failures (failed/interrupted) — cancelled ones stay in-session only.
+        // real failures (failed/interrupted). Cancelled entries are kept
+        // in-session only (never persisted) so the UI can show "Cancelled"
+        // until the list is cleared.
         if (r.state === 'completed' || r.state === 'failed' || r.state === 'interrupted') {
           this._history.unshift(r);
           this._history = this._history.slice(0, MAX_HISTORY);
           this._persistHistory();
+        } else if (r.state === 'cancelled') {
+          this._cancelled.unshift(r);
+          this._cancelled = this._cancelled.slice(0, MAX_HISTORY);
         }
         this._live.delete(id);
         this._flushPush();
@@ -361,7 +371,7 @@ class DownloadManager {
   getDownloads() {
     const active = [];
     for (const { record } of this._live.values()) active.push(record);
-    const all = [...active, ...this._history];
+    const all = [...active, ...this._cancelled, ...this._history];
     return all.sort((a, b) => b.startedAt - a.startedAt);
   }
 
@@ -381,6 +391,9 @@ class DownloadManager {
     const before = this._history.length;
     this._history = this._history.filter((r) => activeIds.has(r.id));
     if (this._history.length !== before) this._persistHistory();
+    // In-session cancelled entries are terminal too — drop them from the
+    // visible list (active downloads are untouched; files stay on disk).
+    this._cancelled = [];
     this._flushPush();
     return true;
   }

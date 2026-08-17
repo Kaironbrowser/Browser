@@ -875,6 +875,113 @@
    /* The Incognito window reuses this chrome but has no app menu. */
    body[data-incognito] #btn-app-menu { display: none; }
 
+   /* ── BOOKMARK STAR ──────────────────────────────────────────
+      Sits immediately right of the omnibar. Outline star by default, filled
+      star (fill: currentColor) when .active. Monochrome, no background — the
+      .nav-btn base supplies sizing, hover, active-scale and transitions, so
+      the fill/color swap animates smoothly. Disabled via .nav-btn:disabled
+      (dimmed, non-interactive) on internal/error/non-http pages. */
+   #btn-bookmark svg path {
+     fill: none;
+     transition: fill var(--dur-fast) var(--ease-out);
+   }
+   #btn-bookmark.active svg path {
+     fill: currentColor;
+   }
+   #btn-bookmark.active {
+     color: var(--text-primary);
+   }
+   /* The star opens the Quick Access / Bookmarks popdown — the pressed-open
+      look matches the Downloads and App Menu buttons. Kept separate from
+      .active (which still means "bookmarked"/filled star), so the two states
+      never conflict. */
+   #btn-bookmark.star-open {
+     background: var(--surface-2);
+     border-color: var(--border-0);
+     color: var(--text-primary);
+   }
+   /* The Incognito window reuses this chrome but must never write normal-
+      browser bookmarks — hide the star entirely (its IPC is also unreachable
+      there via the incognito-* channel prefix). */
+   body[data-incognito] #btn-bookmark { display: none; }
+
+   /* ── BOOKMARKS BAR ──────────────────────────────────────────
+      Compact horizontal strip directly below the chrome toolbar. Pure chrome
+      surface (same --bg-chrome as the toolbar), monochrome items, no cards or
+      gradients. Many bookmarks scroll horizontally instead of wrapping. The
+      bar is hidden entirely when empty (ui.js) and in the Incognito window. */
+   #bookmarks-bar {
+     height: 34px;
+     flex-shrink: 0;
+     display: flex;
+     align-items: center;
+     gap: 2px;
+     padding: 0 var(--s-4);
+     border-bottom: 1px solid var(--border-0);
+     background: var(--bg-chrome);
+     overflow-x: auto;
+     overflow-y: hidden;
+     scrollbar-width: thin;
+     scrollbar-color: var(--border-1) transparent;
+   }
+   #bookmarks-bar.hidden { display: none; }
+   #bookmarks-bar::-webkit-scrollbar { height: 3px; }
+   #bookmarks-bar::-webkit-scrollbar-track { background: transparent; }
+   #bookmarks-bar::-webkit-scrollbar-thumb { background: var(--border-1); border-radius: var(--r-full); }
+   #bookmarks-bar::-webkit-scrollbar-thumb:hover { background: var(--border-focus); }
+
+   .bookmarks-bar-item {
+     display: inline-flex;
+     align-items: center;
+     gap: 7px;
+     flex-shrink: 0;
+     max-width: 200px;
+     min-width: 0;
+     height: 26px;
+     padding: 0 10px;
+     border: none;
+     border-radius: var(--r-sm);
+     background: transparent;
+     color: var(--text-secondary);
+     font-family: var(--font-ui);
+     font-size: 12px;
+     cursor: pointer;
+     overflow: hidden;
+     transition:
+       background var(--dur-fast) var(--ease-out),
+       color var(--dur-fast) var(--ease-out);
+   }
+   .bookmarks-bar-item:hover {
+     background: var(--surface-2);
+     color: var(--text-primary);
+   }
+   .bookmarks-bar-item:active { background: var(--surface-3); }
+   .bookmarks-bar-item img {
+     width: 14px;
+     height: 14px;
+     flex-shrink: 0;
+     border-radius: 3px;
+   }
+   .bookmarks-bar-item .bb-fallback {
+     width: 14px;
+     height: 14px;
+     flex-shrink: 0;
+     color: var(--text-tertiary);
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+   }
+   .bookmarks-bar-item .bb-title {
+     flex: 1;
+     min-width: 0;
+     overflow: hidden;
+     text-overflow: ellipsis;
+     white-space: nowrap;
+   }
+   /* The Incognito window must never read or touch the normal bookmark store
+      — hide the bar entirely there. */
+   body[data-incognito] #bookmarks-bar { display: none; }
+
    /* ── FIND BAR ────────────────────────────────────────────── */
    #find-bar {
      height: 36px;

@@ -109,6 +109,9 @@ const SEND_CHANNELS = new Set([
   'show-app-menu',
   'hide-app-menu',
   'app-menu-measure',
+  'show-star-popup',
+  'hide-star-popup',
+  'star-popup-measure',
   'popup-close-finished',
   'toggle-fullscreen',
   'open-incognito-window',
@@ -120,6 +123,7 @@ const SEND_CHANNELS = new Set([
   'show-about',
   'hide-about',
   'focus-page',
+  'bookmarks-context-menu',
 ]);
 
 const INVOKE_CHANNELS = new Set([
@@ -140,6 +144,14 @@ const INVOKE_CHANNELS = new Set([
   'history-delete-entry',
   'history-clear',
   'history-get-count',
+  'bookmarks-get',
+  'bookmarks-search',
+  'bookmarks-delete',
+  'bookmarks-active-state',
+  'bookmarks-toggle-active',
+  'quick-access-get',
+  'quick-access-delete',
+  'quick-access-toggle-active',
   'downloads-get',
   'downloads-clear',
   'downloads-pause',
@@ -174,6 +186,13 @@ const RECEIVE_CHANNELS = new Set([
   'found-in-page',
   'about-show',
   'about-hide',
+  'toast-show',
+  'toast-hide',
+  'bookmarks-updated',
+  'bookmark-state-changed',
+  'star-popup-show',
+  'star-popup-hide',
+  'quick-access-updated',
 ]);
 
 // Minimal, safe scriptlets executed at document_start to help neutralize
@@ -359,6 +378,35 @@ const api = {
   clearHistory: () => invoke('history-clear'),
   getHistoryCount: () => invoke('history-get-count'),
 
+  // ── Bookmarks API (backend data layer + actions, no UI) ──
+  getBookmarks: () => invoke('bookmarks-get'),
+  searchBookmarks: (query) => invoke('bookmarks-search', query),
+  deleteBookmark: (id) => invoke('bookmarks-delete', id),
+  // Opening a bookmark reuses the existing open-history-entry navigation
+  // (createTab + switchToTab), so it behaves exactly like any other URL.
+  openBookmark: (url) => send('open-history-entry', url),
+  onBookmarksUpdated: (cb) => on('bookmarks-updated', cb),
+
+  // ── Bookmark star (browser chrome) ──────────────────────
+  // Pull the active tab's bookmark state (render the star) and toggle the
+  // active page's bookmark (star click). Same main-process source of truth
+  // as Ctrl+D; pushes arrive on bookmark-state-changed.
+  getActiveBookmarkState: () => invoke('bookmarks-active-state'),
+  toggleActiveBookmark: () => invoke('bookmarks-toggle-active'),
+  onBookmarkStateChanged: (cb) => on('bookmark-state-changed', cb),
+  // Right-click menu for the bookmarks bar (native menu shown by main).
+  showBookmarkContextMenu: (payload) => send('bookmarks-context-menu', payload),
+
+  // ── Quick Access API (home/new-tab page speed dial) ────────
+  // Same main-process store model as bookmarks. The home page renders its
+  // Quick Access section from this list and stays live via the push.
+  getQuickAccess: () => invoke('quick-access-get'),
+  deleteQuickAccessEntry: (id) => invoke('quick-access-delete', id),
+  // Toggle the active page's Quick Access entry (star popup action). Returns
+  // the fresh combined star state, same as toggleActiveBookmark.
+  toggleActiveQuickAccess: () => invoke('quick-access-toggle-active'),
+  onQuickAccessUpdated: (cb) => on('quick-access-updated', cb),
+
   // ── Downloads API (backend data layer + actions, no UI) ──
   getDownloads: () => invoke('downloads-get'),
   clearDownloads: () => invoke('downloads-clear'),
@@ -385,6 +433,18 @@ const api = {
   onDownloadsPanelShow: (cb) => on('downloads-panel-show', cb),
   onDownloadsPanelHide: (cb) => on('downloads-panel-hide', cb),
 
+  // ── Star popup (Quick Access / Bookmarks chooser) ────────
+  // Rendered by the existing overlay window; the main renderer anchors it by
+  // sending the star button's rect. Main forwards the live page state so the
+  // two rows read the current bookmarked / Quick Access membership.
+  showStarPopup: (payload) => send('show-star-popup', payload),
+  hideStarPopup: () => send('hide-star-popup'),
+  // Overlay-only: reports the popup's exact natural height so main sizes the
+  // overlay to fit (same pattern as sendAppMenuMeasure).
+  sendStarPopupMeasure: (payload) => send('star-popup-measure', payload),
+  onStarPopupShow: (cb) => on('star-popup-show', cb),
+  onStarPopupHide: (cb) => on('star-popup-hide', cb),
+
   // ── Application menu (rendered by the existing overlay window) ──
   // The menu button's rect anchors it; main sizes the overlay and forwards the
   // current browser state so actions enable/disable correctly.
@@ -404,6 +464,11 @@ const api = {
   getZoom: () => invoke('zoom-get'),
   showAbout: () => send('show-about'),
   hideAbout: () => send('hide-about'),
+
+  // ── Overlay toast (bookmark feedback, etc.) ──────────────
+  // Overlay-only: main shows the toast by positioning the overlay; the
+  // renderer reports when its display cycle finished so main can reclaim it.
+  notifyToastHidden: () => send('toast-hide'),
 
   // ── Find bar (browser chrome) ────────────────────────────
   // The find bar lives in the main renderer; the menu (overlay) and Ctrl+F
