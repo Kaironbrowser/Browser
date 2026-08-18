@@ -1741,6 +1741,171 @@
      color: var(--text-primary);
      transform: translateY(-1px);
    }
+
+   /* ── COMPACT TOP CHROME ───────────────────────────────────────────────
+      Top-tab mode is the browser's primary layout.  Keep its existing DOM and
+      interaction model intact, but reduce the chrome to a dense, rectangular
+      browser strip so the BrowserView receives materially more vertical room. */
+   body[data-tab-position="top"] {
+     --chrome-h: 40px;
+     --status-h: 22px;
+   }
+
+   body[data-tab-position="top"] #top-tab-bar {
+     height: 34px;
+     gap: 2px;
+     padding: 3px 82px 0 8px;
+     background: var(--bg-chrome);
+   }
+
+   body[data-tab-position="top"] #chromebar {
+     gap: 4px;
+     padding: 0 8px;
+     border-radius: 0;
+     box-shadow: none;
+   }
+
+   body[data-tab-position="top"] #drag-zone { height: 5px; }
+   body[data-tab-position="top"] #nav-btns { gap: 0; }
+
+   body[data-tab-position="top"] .nav-btn {
+     width: 26px;
+     height: 26px;
+     border-radius: 2px;
+   }
+
+   body[data-tab-position="top"] .nav-btn:hover {
+     transform: none;
+     background: var(--surface-2);
+     border-color: var(--border-1);
+   }
+
+   body[data-tab-position="top"] #omnibar-outer {
+     max-width: none;
+     margin: 0 4px;
+   }
+
+   body[data-tab-position="top"] #omnibar {
+     height: 28px;
+     gap: 6px;
+     padding: 0 8px;
+     border-radius: 2px;
+     background: var(--surface-1);
+     backdrop-filter: none;
+   }
+
+   body[data-tab-position="top"] #omnibar:focus-within {
+     transform: none;
+     box-shadow: 0 0 0 1px var(--border-accent);
+   }
+
+   body[data-tab-position="top"] #omnibar.invalid-url {
+     border-color: var(--border-accent);
+     box-shadow: 0 0 0 1px var(--border-1);
+   }
+
+   body[data-tab-position="top"] #address-bar { font-size: 11px; }
+   body[data-tab-position="top"] #address-suggestions { border-radius: 2px; padding: 4px; }
+   body[data-tab-position="top"] .address-suggestion-item { border-radius: 1px; padding: 7px 8px; }
+
+   body[data-tab-position="top"] .top-tab {
+     min-width: 56px;
+     max-width: 220px;
+     height: 30px;
+     gap: 4px;
+     padding: 0 6px;
+     border-radius: 2px 2px 0 0;
+     box-shadow: none;
+   }
+
+   body[data-tab-position="top"] .top-tab:hover { transform: none; }
+   body[data-tab-position="top"] .top-tab.active { box-shadow: inset 0 -1px 0 var(--text-primary); }
+   body[data-tab-position="top"] .top-tab-favicon,
+   body[data-tab-position="top"] .top-tab-favicon img { width: 12px; height: 12px; border-radius: 1px; }
+   body[data-tab-position="top"] .top-tab-title { font-size: 10px; }
+   body[data-tab-position="top"] .top-tab-close {
+     width: 16px;
+     height: 16px;
+     border-radius: 1px;
+     opacity: 0;
+     transition:
+       opacity var(--dur-fast) var(--ease-out),
+       background var(--dur-fast) var(--ease-out),
+       color var(--dur-fast) var(--ease-out),
+       transform var(--dur-fast) var(--ease-spring);
+   }
+
+   /* ── COMPACT TOP CHROME — ANIMATION POLISH ──────────────────────
+      Subtle, premium transitions layered onto the compact geometry.
+      All additions are CSS-only. No geometry, colors, or layout changed. */
+
+   /* Close button reveal — fade in on tab hover. */
+   body[data-tab-position="top"] .top-tab:hover .top-tab-close { opacity: 1; }
+
+   /* Nav button active press — tactile micro-scale for compact mode. */
+   body[data-tab-position="top"] .nav-btn:active { transform: scale(0.92); }
+
+   /* Window control press feedback — subtle scale for compact close/min/max. */
+   body[data-tab-position="top"] #win-controls button:active { transform: scale(0.88); }
+
+   /* Bookmark star SVG fill transition — smooth outline→filled swap. */
+   body[data-tab-position="top"] #btn-bookmark svg path {
+     transition: fill var(--dur-fast) var(--ease-out);
+   }
+
+   body[data-tab-position="top"] .btn-new-tab-top {
+     width: 30px;
+     height: 30px;
+     padding: 0;
+     gap: 0;
+     border-radius: 2px 2px 0 0;
+     border-style: solid;
+     font-size: 0;
+   }
+   body[data-tab-position="top"] .btn-new-tab-top svg { width: 12px; height: 12px; }
+   body[data-tab-position="top"] .btn-new-tab-top:hover { transform: none; }
+
+   body[data-tab-position="top"] #zoom-controls {
+     height: 26px;
+     border-radius: 2px;
+     background: transparent;
+   }
+   body[data-tab-position="top"] .zoom-btn { width: 22px; height: 24px; font-size: 13px; }
+   body[data-tab-position="top"] #zoom-value { min-width: 36px; font-size: 10px; }
+   body[data-tab-position="top"] .incognito-badge {
+     height: 26px;
+     gap: 5px;
+     padding: 0 7px;
+     border-radius: 2px;
+     font-size: 9px;
+   }
+
+   body[data-tab-position="top"] #win-controls { top: 3px; right: 6px; gap: 1px; }
+   body[data-tab-position="top"] #win-controls button {
+     width: 24px;
+     height: 24px;
+     border-radius: 1px;
+     border-color: transparent;
+     background: transparent;
+   }
+   body[data-tab-position="top"] #win-controls button:hover { transform: none; background: var(--surface-2); }
+   body[data-tab-position="top"] #btn-close:hover,
+   body[data-tab-position="top"] #btn-min:hover,
+   body[data-tab-position="top"] #btn-max:hover { color: var(--text-primary); border-color: transparent; }
+
+   body[data-tab-position="top"] #status-strip { padding: 0 8px; }
+   body[data-tab-position="top"] #tracker-pill,
+   body[data-tab-position="top"] #page-title { font-size: 10px; }
+   body[data-tab-position="top"] #shield svg path,
+   body[data-tab-position="top"] #tracker-pill svg path { fill: currentColor; }
+   body[data-tab-position="top"] #shield { color: var(--text-secondary); }
+
+   @media (max-width: 760px) {
+     body[data-tab-position="top"] #top-tab-bar { padding-right: 78px; }
+     body[data-tab-position="top"] #zoom-controls { display: none; }
+     body[data-tab-position="top"] .incognito-badge span { display: none; }
+     body[data-tab-position="top"] .incognito-badge { width: 26px; padding: 0; justify-content: center; }
+   }
    
    @media (max-width: 960px) {
      :root { --ai-w: 0px; }
