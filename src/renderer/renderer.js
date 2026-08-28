@@ -6,6 +6,7 @@
 import { createTabStateStore } from './state.js';
 import { createUiController }  from './ui.js';
 import { initAiPanel }         from './ai.js';
+import { initCustomSites }     from './custom-sites.js';
 
 const { kairon } = window;
 
@@ -37,6 +38,9 @@ console.info('[renderer] init');
 const tabStore = createTabStateStore();
 const ui       = createUiController(kairon, tabStore, publishLayoutMetricsNow);
 const ai       = initAiPanel(kairon);
+
+// ── CUSTOM SITES ─────────────────────────────────────────────
+initCustomSites((url) => kairon.navigate(url));
 
 // Authoritative boot value from the real store (corrects any stale query).
 kairon.getSettingsState().then((snapshot) => {
