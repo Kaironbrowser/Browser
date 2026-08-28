@@ -3807,7 +3807,7 @@ function hideDownloadsPanel() {
 // renderer. Only bookmarkable pages can open it (the star is disabled
 // elsewhere, and the show handler re-validates).
 const STAR_POPUP_WIDTH = 236;
-const STAR_POPUP_HEIGHT = 82;
+const STAR_POPUP_HEIGHT = 120;
 const STAR_POPUP_GAP = 6;
 
 function updateStarPopupBounds() {
@@ -5251,7 +5251,19 @@ app.whenReady().then(async () => {
     try { overlayWindow.show(); } catch (e) { }
     try { overlayWindow.setIgnoreMouseEvents(false); } catch (e) { }
     try { if (overlayWindow.setFocusable) overlayWindow.setFocusable(true); } catch (e) { }
-    try { overlayWindow.webContents.send('star-popup-show', { rect, state }); } catch (e) { }
+    // Include custom site state in the popup payload so overlay can render
+    // the label synchronously (avoids async IPC check on popup open).
+    (async () => {
+      let isCs = false;
+      try {
+        const csJson = await mainWindow.webContents.executeJavaScript(
+          'localStorage.getItem("kairon:custom-sites") || "[]"'
+        );
+        const csData = JSON.parse(csJson || '[]');
+        isCs = Array.isArray(csData) && csData.some((s) => s.url === state.url);
+      } catch (e) { /* localStorage read failed */ }
+      try { overlayWindow.webContents.send('star-popup-show', { rect, state: { ...state, isCustomSite: isCs } }); } catch (e) { }
+    })();
     // Echo to the main renderer so the star button's open state stays in sync.
     try { mainWindow.webContents.send('star-popup-show', { rect }); } catch (e) { }
     try { overlayWindow.focus(); } catch (e) { }
@@ -5271,6 +5283,28 @@ app.whenReady().then(async () => {
     if (height > 0 && height !== activeStarPopup.measuredHeight) {
       activeStarPopup.measuredHeight = height;
       updateStarPopupBounds();
+    }
+  });
+
+  // ── CUSTOM SITES IPC ─────────────────────────────────────
+  // The overlay star popup toggles pages in/out of Custom Sites. The main
+  // renderer owns the data (localStorage-backed); this handler forwards the
+  // request via webContents.send to the main renderer, which performs the
+  // toggle and broadcasts the update back.
+  ipcMain.handle('custom-sites-toggle', (event, url, name, favicon) => {
+    if (!isTrustedIpcSender(event)) return false;
+    // Forward to the main renderer which owns the custom-sites module
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('custom-sites-toggle-request', { url, name, favicon });
+    }
+    return true;
+  });
+
+  ipcMain.on('custom-sites-updated', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    // Broadcast to all windows (overlay needs the update for star popup state)
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send('custom-sites-updated');
     }
   });
 

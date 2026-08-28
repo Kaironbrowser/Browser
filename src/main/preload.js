@@ -186,6 +186,8 @@ const INVOKE_CHANNELS = new Set([
   'zoom-get',
   'updater-get-state',
   'updater-check',
+  'custom-sites-toggle',
+  'custom-sites-check',
 ]);
 const RECEIVE_CHANNELS = new Set([
   'url-changed',
@@ -216,6 +218,9 @@ const RECEIVE_CHANNELS = new Set([
   'star-popup-hide',
   'quick-access-updated',
   'updater-state-changed',
+  'custom-sites-updated',
+  'custom-sites-toggle-request',
+  'custom-sites-check-request',
 ]);
 
 // Minimal, safe scriptlets executed at document_start to help neutralize
@@ -511,6 +516,16 @@ const api = {
   installUpdate: () => send('updater-install'),
   checkForUpdates: () => invoke('updater-check'),
   onUpdaterStateChanged: (cb) => on('updater-state-changed', cb),
+
+  // ── Custom Sites (star popup integration) ──────────────
+  // Toggle a page in/out of Custom Sites from the overlay star popup.
+  // Returns true if added, false if removed.
+  toggleCustomSite: (url, name, favicon) => invoke('custom-sites-toggle', url, name, favicon),
+  isCustomSite: (url) => invoke('custom-sites-check', url),
+  notifyCustomSitesUpdated: () => send('custom-sites-updated'),
+  onCustomSitesUpdated: (cb) => on('custom-sites-updated', cb),
+  onCustomSitesToggleRequest: (cb) => on('custom-sites-toggle-request', cb),
+  onCustomSitesCheckRequest: (cb) => on('custom-sites-check-request', cb),
 };
 
 contextBridge.exposeInMainWorld('kairon', Object.freeze(api));

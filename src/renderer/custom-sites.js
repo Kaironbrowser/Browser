@@ -61,10 +61,6 @@ const ICON_GLOBE = `<svg width="16" height="16" viewBox="0 0 12 12" fill="none">
   <path d="M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10" stroke="currentColor" stroke-width="1.2"/>
 </svg>`;
 
-const ICON_PLUS = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-  <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-</svg>`;
-
 // ── PUBLIC API ──────────────────────────────────────────────
 export function initCustomSites(navigate) {
   const grid = document.getElementById('custom-sites-grid');
@@ -158,21 +154,9 @@ export function initCustomSites(navigate) {
 
       grid.appendChild(tile);
     }
-
-    // "+" add button
-    const addBtn = document.createElement('div');
-    addBtn.className = 'cs-tile cs-add';
-    addBtn.title = 'Add custom site';
-    addBtn.innerHTML = `<div class="cs-favicon cs-favicon-add">${ICON_PLUS}</div>`;
-    addBtn.addEventListener('click', (e) => { e.stopPropagation(); _promptAdd(); });
-    grid.appendChild(addBtn);
   }
 
   // ── ACTIONS ─────────────────────────────────────────────
-  function _promptAdd() {
-    _showAddDialog();
-  }
-
   function _addSite(url, name) {
     const normalized = _normalizeUrl(url);
     if (!normalized) return;
@@ -330,52 +314,62 @@ export function initCustomSites(navigate) {
     nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') urlInput.focus(); });
   }
 
-  // ── ADD DIALOG ──────────────────────────────────────────
-  function _showAddDialog() {
-    const overlay = document.createElement('div');
-    overlay.className = 'cs-dialog-overlay';
+  // ── PUBLIC API (exposed for IPC from overlay) ──────────
+  function isCustomSite(url) {
+    if (!url) return false;
+    try {
+      const normalized = _normalizeUrl(url);
+      return sites.some((s) => s.url === normalized);
+    } catch { return false; }
+  }
 
-    const dialog = document.createElement('div');
-    dialog.className = 'cs-dialog';
-
-    dialog.innerHTML = `
-      <div class="cs-dialog-title">Add custom site</div>
-      <label class="cs-dialog-label">URL</label>
-      <input class="cs-dialog-input" type="text" placeholder="https://example.com or search term" autofocus />
-      <label class="cs-dialog-label">Name <span style="color:var(--text-tertiary)">(optional)</span></label>
-      <input class="cs-dialog-input" type="text" placeholder="Auto-detected from URL" />
-      <div class="cs-dialog-actions">
-        <button class="cs-dialog-btn cs-dialog-cancel" type="button">Cancel</button>
-        <button class="cs-dialog-btn cs-dialog-save" type="button">Add</button>
-      </div>
-    `;
-
-    overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
-
-    const urlInput = dialog.querySelector('input:first-of-type');
-    const nameInput = dialog.querySelector('input:last-of-type');
-    urlInput.focus();
-
-    const close = () => overlay.remove();
-
-    dialog.querySelector('.cs-dialog-cancel').addEventListener('click', close);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-    document.addEventListener('keydown', function handler(e) {
-      if (e.key === 'Escape') { close(); document.removeEventListener('keydown', handler); }
+  function toggleCustomSite(url, name, favicon) {
+    if (!url) return false;
+    const normalized = _normalizeUrl(url);
+    if (!normalized) return false;
+    const existing = sites.find((s) => s.url === normalized);
+    if (existing) {
+      sites = sites.filter((s) => s.url !== normalized);
+      _save(sites);
+      _render();
+      return false; // removed
+    }
+    sites.push({
+      id: _genId(),
+      url: normalized,
+      name: name || _hostFromUrl(normalized),
+      favicon: favicon || _faviconUrl(normalized),
     });
+    _save(sites);
+    _render();
+    return true; // added
+  }
 
-    const add = () => {
-      const url = urlInput.value.trim();
-      if (!url) return;
-      const name = nameInput.value.trim() || _hostFromUrl(_normalizeUrl(url));
-      _addSite(url, name);
-      close();
-    };
+  // Expose on window.kairon for IPC calls from the overlay window
+  if (window.kairon) {
+    window.kairon.isCustomSite = isCustomSite;
+    window.kairon.toggleCustomSite = toggleCustomSite;
+  }
 
-    dialog.querySelector('.cs-dialog-save').addEventListener('click', add);
-    urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') nameInput.focus(); });
-    nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+  // Listen for IPC-driven updates (when overlay toggles a custom site)
+  if (window.kairon && typeof window.kairon.onCustomSitesUpdated === 'function') {
+    window.kairon.onCustomSitesUpdated(() => {
+      sites = _load();
+      _render();
+    });
+  }
+
+  // Listen for toggle requests from the overlay (via main process forwarding)
+  if (window.kairon && typeof window.kairon.onCustomSitesToggleRequest === 'function') {
+    window.kairon.onCustomSitesToggleRequest((payload) => {
+      if (payload && payload.url) {
+        toggleCustomSite(payload.url, payload.name || '', payload.favicon || '');
+        // Broadcast update to overlay so it can refresh star popup state
+        if (typeof window.kairon.notifyCustomSitesUpdated === 'function') {
+          try { window.kairon.notifyCustomSitesUpdated(); } catch (e) {}
+        }
+      }
+    });
   }
 
   // ── INIT ────────────────────────────────────────────────

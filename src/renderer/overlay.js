@@ -780,8 +780,10 @@ appMenu.addEventListener('keydown', (e) => {
 const starPopup = document.getElementById('star-popup');
 const starQaItem = document.getElementById('sp-quick-access-item');
 const starBmItem = document.getElementById('sp-bookmark-item');
+const starCsItem = document.getElementById('sp-custom-site-item');
 const starQaLabel = document.getElementById('sp-quick-access-label');
 const starBmLabel = document.getElementById('sp-bookmark-label');
+const starCsLabel = document.getElementById('sp-custom-site-label');
 
 let starPopupVisible = false;
 let _starPopupHideTimer = null;
@@ -789,11 +791,18 @@ let _starPopupHideTimer = null;
 function showStarPopup(payload) {
   if (!starPopup) return;
   const state = (payload && payload.state) || {};
+  starPopup._lastState = state;
   const bookmarkable = !!state.bookmarkable;
   if (starQaItem) starQaItem.disabled = !bookmarkable;
   if (starBmItem) starBmItem.disabled = !bookmarkable;
   if (starQaLabel) starQaLabel.textContent = state.inQuickAccess ? 'Remove from Quick Access' : 'Add to Quick Access';
   if (starBmLabel) starBmLabel.textContent = state.bookmarked ? 'Remove from Bookmarks' : 'Add to Bookmarks';
+  // Custom Site state: flag is pre-computed by main process
+  if (starCsItem) starCsItem.disabled = !bookmarkable;
+  if (starCsLabel) {
+    const isCs = !!state.isCustomSite;
+    starCsLabel.textContent = isCs ? 'Remove from Custom Sites' : 'Add to Custom Sites';
+  }
 
   clearTimeout(_starPopupHideTimer);
   starPopup.classList.remove('sp-closing');
@@ -844,6 +853,15 @@ starPopup.addEventListener('click', (e) => {
   e.stopPropagation();
   if (action === 'quick-access') window.kairon.toggleActiveQuickAccess().catch(() => {});
   else if (action === 'bookmark') window.kairon.toggleActiveBookmark().catch(() => {});
+  else if (action === 'custom-site') {
+    // Toggle the current page in/out of Custom Sites via IPC
+    const csUrl = (starPopup._lastState && starPopup._lastState.url) || '';
+    const csName = (starPopup._lastState && starPopup._lastState.title) || '';
+    const csFavicon = (starPopup._lastState && starPopup._lastState.favicon) || '';
+    if (window.kairon && typeof window.kairon.toggleCustomSite === 'function') {
+      window.kairon.toggleCustomSite(csUrl, csName, csFavicon).catch(() => {});
+    }
+  }
   hideStarPopup();
 });
 
