@@ -218,6 +218,7 @@ export function createUiController(kairon, store, onLayoutChange) {
 
   // ── HISTORY PERSISTENCE ────────────────────────────────────
   function _loadHistory() {
+    if (IS_INCOGNITO) return [];
     try {
       return JSON.parse(localStorage.getItem('kairon:address-history') || '[]');
     } catch {
@@ -226,12 +227,14 @@ export function createUiController(kairon, store, onLayoutChange) {
   }
 
   function _saveHistory() {
+    if (IS_INCOGNITO) return;
     try {
       localStorage.setItem('kairon:address-history', JSON.stringify(addressHistory.slice(0, 100)));
     } catch {}
   }
 
   function _pushHistory(url) {
+    if (IS_INCOGNITO) return;
     if (typeof url !== 'string' || !url.trim()) return;
     addressHistory = [url, ...addressHistory.filter(u => u !== url)].slice(0, 100);
     _saveHistory();
@@ -1386,43 +1389,211 @@ export function createUiController(kairon, store, onLayoutChange) {
     };
   }
 
-  function _showSuggestions(input) {
-    const query = input.trim().toLowerCase();
-    if (!query) { _hideSuggestions(); return; }
+  // ── OMNIBAR AUTOCOMPLETE ────────────────────────────────────
+  // State for the omnibox autocomplete system.
+  let _acQuery = '';            // what the user has actually typed (lowercase)
+  let _acSuggestions = [];      // rich suggestion objects from history IPC
+  let _acBestMatch = null;      // best inline autocomplete suggestion { url, title }
+  let _acGhostOffset = -1;     // selection start for ghost text (-1 = none)
+  let _acDropdownIdx = -1;     // selected index in dropdown (-1 = none)
+  let _acSuppressInput = false; // guard to prevent re-triggering during programmatic value changes
+  let _acDebounceTimer = null;
+  let _acBackspaceSuppressed = false; // true while autocomplete is suppressed after Backspace removes ghost text
 
-    const fromTabs   = store.getTabs().map(t => t.url).filter(Boolean);
-    const pool       = [...new Set([...addressHistory, ...fromTabs])];
-    const urlMatches = pool.filter(item => item.toLowerCase().includes(query)).slice(0, 4);
+  // Strip protocol and www. prefix from a URL for matching purposes.
+  function _stripUrlPrefix(url) {
+    return url.replace(/^https?:\/\/(www\.)?/i, '');
+  }
 
-    suggestionItems = [
-      ...urlMatches,
-      `https://search.brave.com/search?q=${encodeURIComponent(input.trim())}`,
-    ].slice(0, 6);
+  // Determine if text looks like a navigable URL (vs search query).
+  function _looksLikeUrl(text) {
+    if (!text) return false;
+    const t = text.trim();
+    if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(t)) return true; // has protocol
+    if (/^localhost(\b|:|\/)/.test(t)) return true;
+    // Contains a dot, no spaces, reasonable length → treat as URL
+    if (t.includes('.') && !t.includes(' ') && t.length < 100) return true;
+    // Single-word input: treat as URL-like if it has no spaces and is short
+    // (covers common cases like "youtube", "github" that users expect to autocomplete)
+    if (!t.includes(' ') && t.length >= 2 && t.length < 40 && /^[a-zA-Z]/.test(t)) return true;
+    return false;
+  }
+
+  // Find the best inline autocomplete suggestion from history results.
+  // Returns { url, suffix } where suffix is the text to append after user input.
+  function _findBestAutocomplete(query, suggestions) {
+    if (!query || !suggestions.length) return null;
+    const q = query.toLowerCase();
+    for (const sugg of suggestions) {
+      const stripped = _stripUrlPrefix(sugg.url).toLowerCase();
+      if (stripped.startsWith(q)) {
+        // Compute suffix from the stripped (display) URL, not the full URL.
+        const displayUrl = _stripUrlPrefix(sugg.url);
+        const suffix = displayUrl.substring(q.length);
+        // Only use as inline autocomplete if the suffix is non-trivial
+        // and the URL is reasonably short (domain-ish).
+        if (suffix.length > 0 && displayUrl.length < 120) {
+          return { url: sugg.url, title: sugg.title, suffix };
+        }
+      }
+    }
+    return null;
+  }
+
+  // Apply inline autocomplete ghost text: sets input value and selects the
+  // auto-completed portion so the next keystroke replaces it.
+  // Display value strips protocol (https://) and www. for clean UX.
+  function _applyInlineAutocomplete(suggestion) {
+    if (!suggestion) {
+      _clearInlineAutocomplete();
+      return;
+    }
+    // The display value is protocol-stripped; the full URL is kept for navigation.
+    const displayUrl = _stripUrlPrefix(suggestion.url);
+    const selectFrom = _acQuery.length;
+    const selectTo = displayUrl.length;
+    // Suppress the next input event only if our value differs from what the
+    // user currently sees (avoids blocking legitimate keystrokes).
+    const currentVal = addressBar.value;
+    _acSuppressInput = (currentVal !== displayUrl);
+    addressBar.value = displayUrl;
+    addressBar.setSelectionRange(selectFrom, selectTo);
+    _acGhostOffset = selectFrom;
+    _acBestMatch = suggestion;
+    // Clear suppress synchronously after the browser has time to fire any
+    // pending input event from the value change (microtask: after the current
+    // synchronous block, but before the next user keystroke).
+    if (_acSuppressInput) {
+      queueMicrotask(() => { _acSuppressInput = false; });
+    }
+  }
+
+  function _clearInlineAutocomplete() {
+    _acBestMatch = null;
+    _acGhostOffset = -1;
+  }
+
+  // Debounced async query: fetches autocomplete suggestions from main process
+  // and updates both the inline autocomplete and the dropdown.
+  async function _fetchAndShowSuggestions(query) {
+    if (!query || !_looksLikeUrl(query)) {
+      _hideSuggestions();
+      _clearInlineAutocomplete();
+      // Still show a search suggestion if it looks like a search query
+      if (query && query.trim().length > 0) {
+        _showSearchOnlySuggestions(query.trim());
+      }
+      return;
+    }
+    try {
+      const results = await kairon.getAutocompleteSuggestions(query, 8);
+      _acSuggestions = Array.isArray(results) ? results : [];
+
+      // Find best inline autocomplete
+      const best = _findBestAutocomplete(query, _acSuggestions);
+      _applyInlineAutocomplete(best);
+
+      // Build dropdown items: all history matches + search fallback
+      _acDropdownIdx = -1;
+      _updateDropdownFromHistory(query);
+    } catch (err) {
+      if (UI_DIAG) console.error('[OMNIBAR] autocomplete error:', err);
+      _hideSuggestions();
+    }
+  }
+
+  // Show only a search suggestion (for non-URL inputs).
+  function _showSearchOnlySuggestions(query) {
+    const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}`;
+    suggestionItems = [searchUrl];
+    _acDropdownIdx = -1;
+    const rect = _getOmnibarRect();
+    const rendererInfo = { innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, bodyClientWidth: document.body.clientWidth, docClientWidth: document.documentElement.clientWidth, screenWidth: window.screen.width, screenAvailWidth: window.screen.availWidth };
+    kairon.showOverlaySuggestions({ items: suggestionItems, rect, selectedIndex: -1, rendererInfo });
+    suggVisible = true;
+  }
+
+  // Rebuild the dropdown from _acSuggestions + search fallback.
+  function _updateDropdownFromHistory(query) {
+    // Build rich items: each history entry as { url, title, favicon }
+    // plus a search fallback at the end.
+    const items = [];
+    for (const s of _acSuggestions) {
+      items.push({ url: s.url, title: s.title || '', favicon: s.favicon || '', type: 'history' });
+    }
+    // Search fallback
+    const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}`;
+    items.push({ url: searchUrl, title: '', favicon: '', type: 'search', searchQuery: query });
+
+    // Map to flat URL array for the overlay (overlay expects string[])
+    suggestionItems = items.map(i => i.url);
 
     const rect = _getOmnibarRect();
-    // Augment payload with comprehensive renderer window dimensions for main-process cross-reference
-    const rendererInfo = {
-      innerWidth: window.innerWidth,
-      innerHeight: window.innerHeight,
-      devicePixelRatio: window.devicePixelRatio,
-      bodyClientWidth: document.body.clientWidth,
-      docClientWidth: document.documentElement.clientWidth,
-      screenWidth: window.screen.width,
-      screenAvailWidth: window.screen.availWidth,
-    };
-    if (UI_DIAG) console.info('[OVERLAY-DIAG] omnibar getBoundingClientRect:', JSON.stringify(rect), '| rendererInfo:', JSON.stringify(rendererInfo));
-    kairon.showOverlaySuggestions({ items: suggestionItems, rect, selectedIndex: -1, rendererInfo });
+    const rendererInfo = { innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, bodyClientWidth: document.body.clientWidth, docClientWidth: document.documentElement.clientWidth, screenWidth: window.screen.width, screenAvailWidth: window.screen.availWidth };
+    kairon.showOverlaySuggestions({ items: suggestionItems, rect, selectedIndex: _acDropdownIdx, richItems: items });
+    suggVisible = suggestionItems.length > 0;
+  }
 
-    suggVisible = true;
-    selectedSuggIdx = -1;
+  // Trigger autocomplete fetch (debounced).
+  // Always sync _acQuery to the actual input value so backspace and other
+  // edits are reflected immediately.
+  function _onAddressInput() {
+    if (_acSuppressInput) return;
+    // Immediately update _acQuery so subsequent key events see the real value.
+    const prevQuery = _acQuery;
+    _acQuery = addressBar.value;
+
+    // After Backspace removes ghost text the query is unchanged — suppress
+    // autocomplete so the same suggestion doesn't immediately re-apply.
+    // Re-enable when the user makes a meaningful edit (query differs).
+    if (_acBackspaceSuppressed) {
+      if (_acQuery !== prevQuery) {
+        _acBackspaceSuppressed = false;
+      } else {
+        _clearInlineAutocomplete();
+        clearTimeout(_acDebounceTimer);
+        return;
+      }
+    }
+
+    clearTimeout(_acDebounceTimer);
+    _acDebounceTimer = setTimeout(() => {
+      _fetchAndShowSuggestions(_acQuery);
+    }, 60);
   }
 
   function _navigateSuggestions(direction) {
     if (!suggestionItems.length) return;
-    selectedSuggIdx = (selectedSuggIdx + direction + suggestionItems.length) % suggestionItems.length;
-    const selectedValue = suggestionItems[selectedSuggIdx];
-    addressBar.value = selectedValue;
-    kairon.showOverlaySuggestions({ items: suggestionItems, rect: _getOmnibarRect(), selectedIndex: selectedSuggIdx });
+    if (_acDropdownIdx === -1 && direction === 1) _acDropdownIdx = 0;
+    else if (_acDropdownIdx === -1 && direction === -1) _acDropdownIdx = suggestionItems.length - 1;
+    else _acDropdownIdx = (_acDropdownIdx + direction + suggestionItems.length) % suggestionItems.length;
+
+    const selectedValue = suggestionItems[_acDropdownIdx];
+    const displayUrl = _stripUrlPrefix(selectedValue);
+    _acSuppressInput = true;
+    _acQuery = displayUrl; // keep _acQuery in sync with what the user sees
+    addressBar.value = displayUrl;
+    addressBar.setSelectionRange(0, displayUrl.length);
+    _acBestMatch = null; // suppress inline when navigating dropdown
+    _acGhostOffset = -1;
+    queueMicrotask(() => { _acSuppressInput = false; });
+
+    kairon.showOverlaySuggestions({ items: suggestionItems, rect: _getOmnibarRect(), selectedIndex: _acDropdownIdx, richItems: _acSuggestions });
+  }
+
+  // Accept the current autocomplete suggestion (Tab).
+  function _acceptAutocomplete() {
+    if (_acBestMatch) {
+      const displayUrl = _stripUrlPrefix(_acBestMatch.url);
+      _acSuppressInput = true;
+      _acQuery = displayUrl;
+      addressBar.value = displayUrl;
+      addressBar.setSelectionRange(displayUrl.length, displayUrl.length);
+      _clearInlineAutocomplete();
+      queueMicrotask(() => { _acSuppressInput = false; });
+      return true;
+    }
+    return false;
   }
 
   // ── PUBLIC CALLBACKS ────────────────────────────────────────
@@ -1498,7 +1669,6 @@ export function createUiController(kairon, store, onLayoutChange) {
 
   // ── EVENT BINDING ───────────────────────────────────────────
   function bindEvents() {
-    const debouncedShowSuggestions = debounce(() => _showSuggestions(addressBar.value), 100);
 
     btnCollapseRail.addEventListener('click', () => {
       _setRailCollapsed(leftRail.dataset.collapsed !== 'true');
@@ -1576,29 +1746,89 @@ export function createUiController(kairon, store, onLayoutChange) {
     kairon.getBookmarks().then(_renderBookmarksBar).catch(() => {});
 
     addressBar.addEventListener('keydown', (e) => {
+      // Detect Backspace while ghost text is active: the browser will delete
+      // the selected suffix, leaving _acQuery unchanged — mark suppressed so
+      // _onAddressInput doesn't re-fetch the same suggestion.
+      if (e.key === 'Backspace' && _acGhostOffset >= 0) {
+        _acBackspaceSuppressed = true;
+      }
+
+      // Any non-Backspace keypress (typing, arrows, Home/End, etc.) is a
+      // meaningful interaction that should re-enable autocomplete.
+      if (e.key !== 'Backspace' && _acBackspaceSuppressed) {
+        _acBackspaceSuppressed = false;
+      }
+
       if (e.key === 'Enter') {
+        e.preventDefault();
+        // If dropdown is selected, navigate to that; else use address bar value
         const val = addressBar.value.trim();
+        _hideSuggestions();
+        _clearInlineAutocomplete();
         kairon.navigate(val);
         _pushHistory(val);
         addressBar.blur();
-        _hideSuggestions();
         return;
       }
-      if (e.key === 'Escape')    { addressBar.blur(); _hideSuggestions(); return; }
-      if (e.key === 'ArrowDown') { e.preventDefault(); _navigateSuggestions(1);  return; }
-      if (e.key === 'ArrowUp')   { e.preventDefault(); _navigateSuggestions(-1); return; }
+      if (e.key === 'Escape') {
+        if (suggVisible) {
+          // First Escape: dismiss suggestions, keep focus
+          e.preventDefault();
+          _hideSuggestions();
+          _clearInlineAutocomplete();
+          // Restore to what the user actually typed
+          addressBar.value = _acQuery;
+          return;
+        }
+        addressBar.blur();
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (!suggVisible && _acQuery) {
+          // Show suggestions first
+          _fetchAndShowSuggestions(_acQuery);
+        }
+        _navigateSuggestions(1);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _navigateSuggestions(-1);
+        return;
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        if (_acBestMatch && _acQuery) {
+          // Accept autocomplete and keep editing
+          _acceptAutocomplete();
+        }
+        return;
+      }
+      // ArrowRight at end of input accepts the autocomplete suggestion
+      if (e.key === 'ArrowRight') {
+        const val = addressBar.value;
+        const pos = addressBar.selectionStart;
+        if (pos === val.length && _acBestMatch) {
+          e.preventDefault();
+          _acceptAutocomplete();
+          return;
+        }
+      }
     });
 
     addressBar.addEventListener('focus', () => {
       _closeDownloadsPanel();
       _closeAppMenu();
       _closeStarPopup();
+      _acBackspaceSuppressed = false; // new interaction — re-enable autocomplete
+      _acQuery = addressBar.value;
       requestAnimationFrame(() => addressBar.select());
-      _showSuggestions(addressBar.value);
+      _fetchAndShowSuggestions(addressBar.value);
     });
 
-    addressBar.addEventListener('input', debouncedShowSuggestions);
-    addressBar.addEventListener('blur',  () => setTimeout(_hideSuggestions, 150));
+    addressBar.addEventListener('input', _onAddressInput);
+    addressBar.addEventListener('blur', () => setTimeout(_hideSuggestions, 150));
 
     // ── CHROME FOCUS TRACKING ────────────────────────────────────
     // Report to the main process when the browser chrome's text inputs (address

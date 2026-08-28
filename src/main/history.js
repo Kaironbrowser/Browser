@@ -228,6 +228,24 @@ class HistoryService {
   }
 
   /**
+   * Get autocomplete suggestions for the omnibox.
+   * Matches against URL and title, scored by prefix relevance,
+   * visit frequency, and recency.
+   *
+   * @param {string} query - The user's typed text
+   * @param {number} [limit=8] - Maximum results
+   * @returns {Array<object>}
+   */
+  getAutocompleteSuggestions(query, limit = 8) {
+    try {
+      return this._repository.getAutocompleteSuggestions(query, limit);
+    } catch (err) {
+      console.error('[history] autocomplete suggestions failed:', err.message || err);
+      return [];
+    }
+  }
+
+  /**
    * Force an immediate flush or clean database shutdown.
    */
   flushNow() {

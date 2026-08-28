@@ -154,6 +154,7 @@ function openIncognitoWindow() {
     icon: services.getAppIcon(),
     show: false,
     webPreferences: {
+      partition: INC_PARTITION,
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -264,6 +265,7 @@ function createIncognitoOverlay() {
     hasShadow: false,
     show: false,
     webPreferences: {
+      partition: INC_PARTITION,
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -1227,6 +1229,11 @@ function registerIpc() {
     if (!payload || typeof payload.source !== 'string' || typeof payload.message !== 'string') return true;
     services.logError(`renderer-${payload.source}`, payload.message);
     return true;
+  });
+
+  // ── INVOKE: autocomplete (Incognito never queries or persists history) ──
+  handle('incognito-history-autocomplete', () => {
+    return [];
   });
 
   // ── INVOKE: downloads data (overlay panel + internal downloads page) ──

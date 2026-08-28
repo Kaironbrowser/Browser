@@ -15,7 +15,24 @@ const IS_INCOGNITO_CHROME = (() => {
     return false;
   }
 })();
-const CHANNEL_PREFIX = IS_INCOGNITO_CHROME ? 'incognito-' : '';
+
+// ── NEW WINDOW CHROME DETECTION ──────────────────────────────
+// Additional normal windows (Ctrl+N) reuse this same preload but talk to
+// dedicated nw-* IPC channels owned by the New Window browser (src/main/
+// new-window.js), so each window's chrome and tabs never touch the main
+// window's state. Detection is by query flag: new windows load its chrome
+// via loadFile(..., { query: { newWindow: '1' } }).
+const IS_NEW_WINDOW_CHROME = (() => {
+  try {
+    return /[?&]newWindow=1(&|$)/.test(location.search);
+  } catch (e) {
+    return false;
+  }
+})();
+
+// Channel prefix: incognito-* for Incognito, nw-* for new windows,
+// unprefixed for the main browser.
+const CHANNEL_PREFIX = IS_INCOGNITO_CHROME ? 'incognito-' : (IS_NEW_WINDOW_CHROME ? 'nw-' : '');
 
 // Strip external preload/preconnect hints in loaded web pages to reduce
 // "preloaded but not used" console warnings. This only runs for http(s)
@@ -115,6 +132,7 @@ const SEND_CHANNELS = new Set([
   'popup-close-finished',
   'toggle-fullscreen',
   'open-incognito-window',
+  'open-new-window',
   'app-exit',
   'show-find-bar',
   'find-next',
@@ -124,6 +142,7 @@ const SEND_CHANNELS = new Set([
   'hide-about',
   'focus-page',
   'bookmarks-context-menu',
+  'updater-install',
 ]);
 
 const INVOKE_CHANNELS = new Set([
@@ -141,6 +160,7 @@ const INVOKE_CHANNELS = new Set([
   'get-cosmetic-css',
   'history-get',
   'history-search',
+  'history-autocomplete',
   'history-delete-entry',
   'history-clear',
   'history-get-count',
@@ -164,6 +184,8 @@ const INVOKE_CHANNELS = new Set([
   'downloads-set-location',
   'downloads-reset-location',
   'zoom-get',
+  'updater-get-state',
+  'updater-check',
 ]);
 const RECEIVE_CHANNELS = new Set([
   'url-changed',
@@ -193,6 +215,7 @@ const RECEIVE_CHANNELS = new Set([
   'star-popup-show',
   'star-popup-hide',
   'quick-access-updated',
+  'updater-state-changed',
 ]);
 
 // Minimal, safe scriptlets executed at document_start to help neutralize
@@ -374,6 +397,7 @@ const api = {
   // ── History API (backend data layer, no UI) ──────────────
   getHistory: (limit, offset) => invoke('history-get', limit, offset),
   searchHistory: (query, limit, offset) => invoke('history-search', query, limit, offset),
+  getAutocompleteSuggestions: (query, limit) => invoke('history-autocomplete', query, limit),
   deleteHistoryEntry: (id) => invoke('history-delete-entry', id),
   clearHistory: () => invoke('history-clear'),
   getHistoryCount: () => invoke('history-get-count'),
@@ -460,6 +484,7 @@ const api = {
   // ── Menu actions ─────────────────────────────────────────
   toggleFullscreen: () => send('toggle-fullscreen'),
   openIncognitoWindow: () => send('open-incognito-window'),
+  openNewWindow: () => send('open-new-window'),
   exitApp: () => send('app-exit'),
   getZoom: () => invoke('zoom-get'),
   showAbout: () => send('show-about'),
@@ -480,6 +505,12 @@ const api = {
   onFindBarShow: (cb) => on('find-bar-show', cb),
   onFoundInPage: (cb) => on('found-in-page', cb),
   focusPage: () => send('focus-page'),
+
+  // ── Auto Updater ─────────────────────────────────────────
+  getUpdaterState: () => invoke('updater-get-state'),
+  installUpdate: () => send('updater-install'),
+  checkForUpdates: () => invoke('updater-check'),
+  onUpdaterStateChanged: (cb) => on('updater-state-changed', cb),
 };
 
 contextBridge.exposeInMainWorld('kairon', Object.freeze(api));

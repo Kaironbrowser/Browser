@@ -152,6 +152,79 @@ class HistoryRepository {
   }
 
   /**
+   * Get autocomplete suggestions for the omnibox.
+   * Matches against URL and title, scored by:
+   *   1. Prefix match (URL domain prefix) — highest
+   *   2. Title prefix match
+   *   3. URL contains match
+   *   4. Title contains match
+   * Within each tier, results are sorted by visit frequency then recency.
+   *
+   * @param {string} query - The user's typed text
+   * @param {number} [limit=8] - Maximum results
+   * @returns {Array<object>}
+   */
+  getAutocompleteSuggestions(query, limit = 8) {
+    if (!query || typeof query !== 'string' || !query.trim()) return [];
+    const db = this._dbManager.getDb();
+    const safeLimit = Math.max(1, Math.min(15, Number(limit) || 8));
+    const q = query.trim().toLowerCase();
+
+    // Fetch all candidates that match (broad filter), then score in JS for
+    // flexible prefix matching (strip protocol, www, etc.).
+    const pattern = `%${q}%`;
+    const rows = db.prepare(`
+      SELECT url, title, favicon, visitCount, lastVisited
+      FROM history
+      WHERE LOWER(url) LIKE ? OR LOWER(title) LIKE ?
+      ORDER BY lastVisited DESC
+      LIMIT 200
+    `).all(pattern, pattern);
+
+    if (!rows.length) return [];
+
+    function stripProtocolAndWww(url) {
+      return url.replace(/^https?:\/\/(www\.)?/i, '');
+    }
+
+    // Score each row. Higher = better.
+    const scored = [];
+    const seen = new Set();
+    for (const row of rows) {
+      const normalised = stripProtocolAndWww(row.url).toLowerCase();
+      const titleLower = (row.title || '').toLowerCase();
+      let score = 0;
+
+      if (normalised.startsWith(q)) score = 1000;
+      else if (titleLower.startsWith(q)) score = 800;
+      else if (normalised.includes(q)) score = 400;
+      else if (titleLower.includes(q)) score = 200;
+      else continue;
+
+      // Frequency boost (log-ish scale so 1000 visits doesn't dominate).
+      score += Math.min(200, Math.log2((row.visitCount || 1) + 1) * 20);
+      // Recency boost: entries visited within the last day get a large bonus.
+      const age = Date.now() - (row.lastVisited || 0);
+      if (age < 86400000) score += 150;          // < 1 day
+      else if (age < 604800000) score += 80;     // < 1 week
+      else if (age < 2592000000) score += 30;    // < 1 month
+
+      // Prefer shorter URLs (domain-only beats long path URLs).
+      score -= Math.min(100, normalised.length * 0.3);
+
+      // Deduplicate by normalised URL.
+      const dedupKey = normalised.replace(/\/$/, '');
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+
+      scored.push({ ...row, score });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, safeLimit).map(({ score, ...rest }) => rest);
+  }
+
+  /**
    * Get total number of stored history entries.
    * @returns {number}
    */

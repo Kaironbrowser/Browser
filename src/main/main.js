@@ -22,6 +22,23 @@ const {
   isIncognitoChromeWebContents,
   isIncognitoTabWebContents,
 } = require('./incognito');
+const {
+  openNewWindow,
+  registerNewWindow,
+  broadcastSettingsToNewWindows,
+  broadcastBookmarksToNewWindows,
+  broadcastDownloadsToNewWindows,
+  isNewWindowChromeSender,
+  isNewWindowOverlaySender,
+  isNewWindowTabWebContents,
+  registerNewWindowIpc,
+} = require('./new-window');
+const {
+  initUpdater,
+  checkForUpdates,
+  installUpdate,
+  getUpdaterState,
+} = require('./updater');
 
 const APP_USER_MODEL_ID = 'com.kairon.browser';
 
@@ -692,12 +709,11 @@ function normalizeNavigationTarget(urlInput) {
 
 function isTrustedIpcSender(event) {
   if (!mainWindow || mainWindow.isDestroyed() || !event) return false;
-  // Allow messages from the main renderer and from the overlay renderer (if present)
+  // Allow messages only from the normal main renderer and normal overlay renderer
   if (event.sender === mainWindow.webContents) return true;
   if (overlayWindow && !overlayWindow.isDestroyed() && event.sender === overlayWindow.webContents) return true;
-  // The Incognito window's own chrome is trusted the same way (its IPC is
-  // prefixed with incognito-* so it never touches normal browser state).
-  if (isIncognitoChromeWebContents(event.sender)) return true;
+  // Additional normal windows (Ctrl+N) are also trusted
+  if (isNewWindowChromeSender(event) || isNewWindowOverlaySender(event)) return true;
   return false;
 }
 
@@ -714,6 +730,8 @@ function isTabBrowserView(event) {
   // Incognito tabs are BrowserViews from the Incognito window — recognized so
   // their internal pages can use the same shared (unprefixed) read-only IPC.
   if (isIncognitoTabWebContents(event.sender)) return true;
+  // Additional normal windows (Ctrl+N) tabs are also recognized
+  if (isNewWindowTabWebContents(event.sender)) return true;
   return false;
 }
 
@@ -1454,6 +1472,10 @@ function emitSettingsState(senderId = null) {
   try {
     broadcastSettingsToIncognito(snapshot, senderId);
   } catch (e) { }
+  // Additional normal windows (Ctrl+N) also follow the global theme.
+  try {
+    broadcastSettingsToNewWindows(snapshot, senderId);
+  } catch (e) { }
 }
 
 function getActiveTab() {
@@ -1880,6 +1902,8 @@ function broadcastBookmarksState() {
     } catch (e) {    }
   }
   pushActiveBookmarkState();
+  // Additional normal windows (Ctrl+N) also receive bookmark updates.
+  try { broadcastBookmarksToNewWindows(); } catch (e) { }
 }
 
 // ── QUICK ACCESS (home / new-tab page) ────────────────────────
@@ -2359,6 +2383,15 @@ function createTab(initialTarget = HOME_PAGE_URL) {
     if ((input.key === 'n' || input.key === 'N' || input.code === 'KeyN') && input.shift && !input.alt) {
       event.preventDefault();
       openIncognitoWindow();
+      return;
+    }
+
+    // Ctrl+N — open a new normal window while a webpage has focus.
+    // Mirrors the chrome-level handler so the shortcut works identically
+    // regardless of where keyboard focus is.
+    if ((input.key === 'n' || input.key === 'N' || input.code === 'KeyN') && !input.shift && !input.alt) {
+      event.preventDefault();
+      openNewWindow();
       return;
     }
 
@@ -3052,6 +3085,66 @@ function createWindow() {
     show: false,
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WINDOWS: Fix top-right corner click-through via WM_NCHITTEST override
+  //
+  // Problem: with frame:false + resizable:true, Windows preserves WS_THICKFRAME
+  // and reserves ~8 px around the window perimeter for native resize hit-testing
+  // (HTTOP, HTRIGHT, HTTOPRIGHT, etc.).  These pixels are intercepted at the OS
+  // level — Electron's Chromium renderer never receives the events.  No CSS,
+  // pointer-events, -webkit-app-region, or z-index change can fix this because
+  // the renderer is simply not involved at those coordinates.
+  //
+  // Fix: hook WM_NCHITTEST (0x0084) and return HTCLIENT (1) for the top-right
+  // win-controls zone (120 × 40 px).  This tells Windows the corner is normal
+  // client area, so it forwards the click to the renderer, where the existing
+  // -webkit-app-region / pointer-events CSS takes over correctly.  All other
+  // edges and corners continue to use native resize hit-testing unmodified.
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (process.platform === 'win32') {
+    const WM_NCHITTEST = 0x0084;
+    const HTCLIENT     = 1;
+
+    // Matches body[data-tab-position="top"] #win-controls: width:120px height:40px
+    // positioned at top:0 right:0.  In sidebar mode the buttons are not at the
+    // corner, so the zone is safely wider than needed there.
+    const WIN_CTRL_W = 120;
+    const WIN_CTRL_H = 40;
+
+    try {
+      mainWindow.hookWindowMessage(WM_NCHITTEST, (_wParam, lParam) => {
+        try {
+          // lParam carries the cursor screen position packed as two signed
+          // 16-bit integers (LOWORD = x, HIWORD = y) — GET_X_LPARAM / GET_Y_LPARAM.
+          // Electron passes it as a Node Buffer on 64-bit Windows.
+          const cursorX = lParam.readInt16LE(0);
+          const cursorY = lParam.readInt16LE(2);
+
+          const bounds  = mainWindow.getBounds();
+          const winRight = bounds.x + bounds.width;
+          const winTop   = bounds.y;
+
+          if (
+            cursorX >= winRight - WIN_CTRL_W &&
+            cursorX <= winRight              &&
+            cursorY >= winTop                &&
+            cursorY <= winTop + WIN_CTRL_H
+          ) {
+            // Override: treat as client area so the renderer handles it
+            return { returnValue: HTCLIENT };
+          }
+        } catch (e) {
+          // Buffer read failed or bounds unavailable — fall through to default
+        }
+        // Return nothing → let Electron / Windows perform default hit-testing
+      });
+      diag('[main] WM_NCHITTEST hook installed for top-right win-controls zone');
+    } catch (e) {
+      // hookWindowMessage not available (non-Windows build or sandboxed env) — safe to ignore
+      logError('wm-nchittest-hook-failed', e);
+    }
+  }
+
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: getThemeQuery() });
 
   // ═══════════════════════════════════════════════════════════════
@@ -3126,6 +3219,13 @@ function createWindow() {
         (process.platform === 'darwin' ? input.meta : input.control)) {
       event.preventDefault();
       openIncognitoWindow();
+      return;
+    }
+    // Ctrl+N — open a new normal window while the browser chrome holds focus.
+    if ((input.key === 'n' || input.key === 'N' || input.code === 'KeyN') && !input.shift && !input.alt &&
+        (process.platform === 'darwin' ? input.meta : input.control)) {
+      event.preventDefault();
+      openNewWindow();
       return;
     }
     // Ctrl+Tab / Ctrl+Shift+Tab — cycle tabs while browser chrome holds focus
@@ -3631,6 +3731,8 @@ function broadcastDownloadsState() {
       if (isInternalDownloadsPage({ sender: wc })) wc.send('downloads-updated', snapshot);
     } catch (e) { }
   }
+  // Additional normal windows (Ctrl+N) also receive download updates.
+  try { broadcastDownloadsToNewWindows(snapshot); } catch (e) { }
 }
 
 function updateDownloadsPanelBounds() {
@@ -3840,7 +3942,19 @@ function getAppMenuState() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     try { isFullscreen = mainWindow.isFullScreen(); } catch (e) { }
   }
-  return { canGoBack, canGoForward, zoomFactor, isFullscreen };
+  let updater = null;
+  try { updater = getUpdaterState(); } catch (e) { }
+  return { canGoBack, canGoForward, zoomFactor, isFullscreen, updater };
+}
+
+function broadcastUpdaterState(state) {
+  const s = state || getUpdaterState();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.webContents.send('updater-state-changed', s); } catch (e) { }
+  }
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    try { overlayWindow.webContents.send('updater-state-changed', s); } catch (e) { }
+  }
 }
 
 function updateAppMenuBounds() {
@@ -4805,6 +4919,13 @@ app.whenReady().then(async () => {
     return historyService.searchHistory(query, limit || 50, offset || 0);
   });
 
+  ipcMain.handle('history-autocomplete', (event, query, limit) => {
+    if (!isTrustedIpcSender(event)) return [];
+    if (!historyService) return [];
+    if (typeof query !== 'string') return [];
+    return historyService.getAutocompleteSuggestions(query, limit || 8);
+  });
+
   ipcMain.handle('history-delete-entry', (event, id) => {
     if (!_isHistoryTrusted(event)) throw new Error('Unauthorized IPC sender');
     if (!historyService) return false;
@@ -5284,6 +5405,12 @@ app.whenReady().then(async () => {
     openIncognitoWindow();
   });
 
+  // New Window — opens an additional normal browser window.
+  ipcMain.on('open-new-window', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    openNewWindow();
+  });
+
   // Fullscreen — reuses the existing F11 toggle (also exits content fullscreen).
   ipcMain.on('toggle-fullscreen', (event) => {
     if (!isTrustedIpcSender(event)) return;
@@ -5374,6 +5501,22 @@ app.whenReady().then(async () => {
     }
   });
 
+  // ── AUTO UPDATER IPC ──────────────────────────────────────
+  ipcMain.handle('updater-get-state', (event) => {
+    if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return getUpdaterState();
+  });
+
+  ipcMain.handle('updater-check', async (event) => {
+    if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return await checkForUpdates();
+  });
+
+  ipcMain.on('updater-install', (event) => {
+    if (!isTrustedIpcSender(event)) return;
+    installUpdate();
+  });
+
   createWindow();
   tabSleepManager.start();
 
@@ -5396,6 +5539,30 @@ app.whenReady().then(async () => {
     logError('incognito-register-failed', e);
   }
 
+  // Register the New Window module with shared services. Each additional
+  // window created via Ctrl+N gets its own tabs, overlay, and layout,
+  // sharing the same session and services as the main window.
+  try {
+    registerNewWindow({
+      getCurrentThemeMode,
+      getThemeQuery,
+      featureStore,
+      store,
+      emitSettingsState,
+      reconfigureAdblocker,
+      logError,
+      getAppIcon,
+      getHistoryService: () => historyService,
+      getBookmarkService: () => bookmarkService,
+      getQuickAccessService: () => quickAccessService,
+      getDownloadManager: () => downloadManager,
+      getUpdaterState,
+    });
+    registerNewWindowIpc();
+  } catch (e) {
+    logError('new-window-register-failed', e);
+  }
+
   // If adblock CSS is already available, inject into any created tabs and notify renderer.
   try {
     if (adblockerService && adblockerService.css) {
@@ -5409,6 +5576,17 @@ app.whenReady().then(async () => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('adblock-css-updated', { css: adblockerService.css });
     }
   } catch (e) { }
+
+  // Initialize automatic updates (delayed check runs inside updater.js).
+  try {
+    initUpdater({
+      onStateChange: (state) => {
+        broadcastUpdaterState(state);
+      },
+    });
+  } catch (e) {
+    logError('updater-init-failed', e);
+  }
 
   emitSettingsState();
 });

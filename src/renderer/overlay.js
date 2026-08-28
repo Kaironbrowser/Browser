@@ -4,7 +4,7 @@ const OVERLAY_DIAG = false;
 
 const suggestions = document.getElementById('address-suggestions');
 
-function renderSuggestions({ items, rect, selectedIndex = -1 }) {
+function renderSuggestions({ items, rect, selectedIndex = -1, richItems }) {
   if (!suggestions) return;
 
   suggestions.innerHTML = '';
@@ -44,6 +44,9 @@ function renderSuggestions({ items, rect, selectedIndex = -1 }) {
     });
   }
 
+  // Build a lookup for rich item metadata if provided.
+  const richMap = (richItems && richItems.length) ? richItems : null;
+
   items.forEach((value, index) => {
     const btn = document.createElement('button');
     btn.className = 'address-suggestion-item';
@@ -52,6 +55,7 @@ function renderSuggestions({ items, rect, selectedIndex = -1 }) {
     if (index === selectedIndex) btn.setAttribute('aria-selected', 'true');
 
     const isSearch = index === items.length - 1 && value.includes('search.brave.com');
+    const rich = richMap && richMap[index] ? richMap[index] : null;
     let displayText = value;
     let iconElement;
 
@@ -66,19 +70,31 @@ function renderSuggestions({ items, rect, selectedIndex = -1 }) {
       // Search rows carry a secondary text color that follows the global theme.
       btn.classList.add('address-suggestion-search');
       iconElement = `<img src="https://brave.com/favicon.ico" width="16" height="16" style="flex-shrink:0">`;
+    } else if (rich && rich.title && rich.title !== 'Untitled') {
+      // History entry with a meaningful title: show title + URL in a two-line layout.
+      const faviconUrl = rich.favicon || '';
+      iconElement = faviconUrl
+        ? `<img src="${sanitizeText(faviconUrl)}" width="14" height="14" style="flex-shrink:0" onerror="this.outerHTML='<svg width=&quot;11&quot; height=&quot;11&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;flex-shrink:0;opacity:var(--sugg-icon-opacity)&quot;><circle cx=&quot;6&quot; cy=&quot;6&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/><path d=&quot;M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/></svg>'">` 
+        : `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;opacity:var(--sugg-icon-opacity)"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10" stroke="currentColor" stroke-width="1.2"/></svg>`;
+      btn.innerHTML = `
+        <span class="sugg-icon-col">${iconElement}</span>
+        <span class="sugg-text-col">
+          <span class="sugg-title">${sanitizeText(rich.title)}</span>
+          <span class="sugg-url">${sanitizeText(value)}</span>
+        </span>`;
     } else {
-      // The globe icon uses currentColor (theme text) with a theme-driven opacity.
-      iconElement = `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;opacity:var(--sugg-icon-opacity)">
-          <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/>
-          <path d="M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10" stroke="currentColor" stroke-width="1.2"/>
-         </svg>`;
+      // Plain history entry or unknown: show URL only with globe icon.
+      if (rich && rich.favicon) {
+        iconElement = `<img src="${sanitizeText(rich.favicon)}" width="14" height="14" style="flex-shrink:0" onerror="this.outerHTML='<svg width=&quot;11&quot; height=&quot;11&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;flex-shrink:0;opacity:var(--sugg-icon-opacity)&quot;><circle cx=&quot;6&quot; cy=&quot;6&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/><path d=&quot;M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/></svg>'">`;
+      } else {
+        iconElement = `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;opacity:var(--sugg-icon-opacity)"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10" stroke="currentColor" stroke-width="1.2"/></svg>`;
+      }
+      btn.innerHTML = `
+        <span>
+          ${iconElement}
+          <span style="text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${sanitizeText(displayText)}</span>
+        </span>`;
     }
-
-    btn.innerHTML = `
-      <span>
-        ${iconElement}
-        <span style="text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${sanitizeText(displayText)}</span>
-      </span>`;
 
     btn.addEventListener('mousedown', (e) => {
       e.stopPropagation();
@@ -545,6 +561,54 @@ document.addEventListener('keydown', (e) => {
 const appMenu = document.getElementById('app-menu');
 const amZoomValue = document.getElementById('am-zoom-value');
 const amFullscreenLabel = document.getElementById('am-fullscreen-label');
+const amUpdateStatus = document.getElementById('am-update-status');
+const amUpdateStatusText = document.getElementById('am-update-status-text');
+const amVersionText = document.getElementById('am-version-text');
+const amUpdateBtn = document.getElementById('am-update-btn');
+
+function applyUpdaterState(updaterState) {
+  if (!updaterState) return;
+  const ver = updaterState.currentVersion || '';
+  if (amVersionText && ver) {
+    amVersionText.textContent = `Version ${ver}`;
+  }
+
+  const isReady = updaterState.state === 'ready';
+  const isAvailable = updaterState.state === 'available' || updaterState.state === 'downloading';
+
+  if (isReady) {
+    if (amUpdateStatus) amUpdateStatus.style.display = 'flex';
+    if (amUpdateStatusText) amUpdateStatusText.textContent = 'Update ready';
+    if (amUpdateBtn) amUpdateBtn.style.display = 'flex';
+  } else if (isAvailable) {
+    if (amUpdateStatus) amUpdateStatus.style.display = 'flex';
+    if (amUpdateStatusText) amUpdateStatusText.textContent = 'Update available';
+    if (amUpdateBtn) amUpdateBtn.style.display = 'none';
+  } else {
+    if (amUpdateStatus) amUpdateStatus.style.display = 'none';
+    if (amUpdateBtn) amUpdateBtn.style.display = 'none';
+  }
+
+  if (appMenuVisible) {
+    requestAnimationFrame(() => {
+      if (!appMenuVisible || !appMenu) return;
+      const prevHeight = appMenu.style.height;
+      appMenu.style.height = 'auto';
+      const h = appMenu.offsetHeight;
+      appMenu.style.height = prevHeight || '';
+      if (h > 0) window.kairon.sendAppMenuMeasure({ height: h });
+    });
+  }
+}
+
+if (window.kairon) {
+  if (typeof window.kairon.onUpdaterStateChanged === 'function') {
+    window.kairon.onUpdaterStateChanged((state) => applyUpdaterState(state));
+  }
+  if (typeof window.kairon.getUpdaterState === 'function') {
+    window.kairon.getUpdaterState().then((state) => applyUpdaterState(state)).catch(() => {});
+  }
+}
 
 const REDUCED_MOTION = typeof window.matchMedia === 'function' &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -555,6 +619,10 @@ let _appMenuHideTimer = null;
 function showAppMenu(payload) {
   if (!appMenu) return;
   const state = (payload && payload.state) || {};
+
+  if (state.updater) {
+    applyUpdaterState(state.updater);
+  }
 
   // Adapt available actions to the live browser state.
   const backItem = appMenu.querySelector('[data-action="back"]');
@@ -613,6 +681,7 @@ window.kairon.onAppMenuHide(() => hideAppMenu());
 function runAppMenuCommand(action) {
   switch (action) {
     case 'new-tab':       window.kairon.createTab('kairon://home'); break;
+    case 'new-window':    window.kairon.openNewWindow(); break;
     case 'new-incognito': window.kairon.openIncognitoWindow(); break;
     case 'back':          window.kairon.goBack(); break;
     case 'forward':       window.kairon.goForward(); break;
@@ -656,6 +725,12 @@ function handleAppMenuAction(action) {
     case 'about':
       hideAppMenu();
       window.kairon.showAbout();
+      break;
+    case 'restart-update':
+      hideAppMenu();
+      if (window.kairon && window.kairon.installUpdate) {
+        window.kairon.installUpdate();
+      }
       break;
     default:
       hideAppMenu();
