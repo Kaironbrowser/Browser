@@ -110,6 +110,7 @@ export function initCustomSites(navigate) {
 
       // Click → navigate
       tile.addEventListener('click', (e) => {
+        e.stopPropagation();
         if (e.defaultPrevented) return;
         navigate(site.url);
       });
@@ -163,7 +164,7 @@ export function initCustomSites(navigate) {
     addBtn.className = 'cs-tile cs-add';
     addBtn.title = 'Add custom site';
     addBtn.innerHTML = `<div class="cs-favicon cs-favicon-add">${ICON_PLUS}</div>`;
-    addBtn.addEventListener('click', () => _promptAdd());
+    addBtn.addEventListener('click', (e) => { e.stopPropagation(); _promptAdd(); });
     grid.appendChild(addBtn);
   }
 

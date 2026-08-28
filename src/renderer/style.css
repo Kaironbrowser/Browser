@@ -505,6 +505,8 @@
    /* ── CUSTOM SITES ──────────────────────────────────────────── */
    #custom-sites-section {
      flex-shrink: 0;
+     pointer-events: auto;
+     -webkit-app-region: no-drag;
    }
    
    #custom-sites-grid {
@@ -512,6 +514,8 @@
      grid-template-columns: repeat(4, 1fr);
      gap: 4px;
      padding: 2px 0;
+     pointer-events: auto;
+     -webkit-app-region: no-drag;
    }
    
    #custom-sites-divider {
@@ -531,6 +535,8 @@
      cursor: pointer;
      user-select: none;
      -webkit-user-drag: none;
+     pointer-events: auto;
+     -webkit-app-region: no-drag;
      transition:
        background var(--dur-micro) var(--ease-out),
        border-color var(--dur-micro) var(--ease-out),
@@ -583,6 +589,8 @@
      align-items: center;
      justify-content: center;
      color: var(--text-tertiary);
+     pointer-events: auto;
+     -webkit-app-region: no-drag;
      transition: border-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out);
    }
    
