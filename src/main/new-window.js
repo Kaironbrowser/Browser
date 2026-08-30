@@ -50,6 +50,27 @@ function registerNewWindow(deps) {
   if (deps) services = { ...services, ...deps };
 }
 
+// ── SITE BLOCKING HELPER ─────────────────────────────────────
+// Mirrors main.js's adblock-event feedback so blocked navigations
+// in new-window tabs produce the same UI feedback.
+function sendSiteBlockedFeedback(state, url) {
+  try {
+    if (state.win && !state.win.isDestroyed()) {
+      state.win.webContents.send(NW + 'adblock-event', {
+        url,
+        blocked: true,
+        rule: 'site-blocker',
+        resourceType: 'navigation',
+        domain: (() => { try { return new URL(url).hostname; } catch { return null; } })(),
+      });
+    }
+  } catch (e) { }
+}
+
+function isNewWindowSiteBlocked(url) {
+  try { return typeof services.isSiteBlocked === 'function' && services.isSiteBlocked(url); } catch { return false; }
+}
+
 // ── WINDOW LIFECYCLE ─────────────────────────────────────────
 
 function openNewWindow() {
@@ -70,6 +91,7 @@ function openNewWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: false,
+      sandbox: true,
     },
   });
 
@@ -455,9 +477,22 @@ function createNewWindowTab(state, initialTarget = HOME_URL) {
     try {
       const parsed = new URL(url);
       const allowed = ALLOWED_PROTOCOLS.has(parsed.protocol) || parsed.protocol === 'about:';
-      if (!allowed) { event.preventDefault(); return; }
+      if (!allowed || isNewWindowSiteBlocked(url)) {
+        event.preventDefault();
+        if (isNewWindowSiteBlocked(url)) sendSiteBlockedFeedback(state, url);
+        return;
+      }
     } catch (e) { event.preventDefault(); return; }
     tab.isInternalHome = false;
+  };
+  const onWillRedirect = (event, url, isInPlace, isMainFrame) => {
+    if (!isMainFrame) return;
+    // Site-blocker enforcement: prevent redirects to blocked domains.
+    if (isNewWindowSiteBlocked(url)) {
+      event.preventDefault();
+      sendSiteBlockedFeedback(state, url);
+      return;
+    }
   };
   const onBeforeInputEvent = (event, input) => {
     if (input.type !== 'keyDown') return;
@@ -515,7 +550,10 @@ function createNewWindowTab(state, initialTarget = HOME_URL) {
 
   wc.setWindowOpenHandler(({ url }) => {
     const target = normalizeNewWindowTarget(url);
-    if (!target) return { action: 'deny' };
+    if (!target || isNewWindowSiteBlocked(target)) {
+      if (isNewWindowSiteBlocked(target)) sendSiteBlockedFeedback(state, target);
+      return { action: 'deny' };
+    }
     const newId = createNewWindowTab(state, target);
     switchNewWindowTab(state, newId);
     return { action: 'deny' };
@@ -529,6 +567,7 @@ function createNewWindowTab(state, initialTarget = HOME_URL) {
     ['did-stop-loading', onDidStopLoading],
     ['did-fail-load', onDidFailLoad],
     ['will-navigate', onWillNavigate],
+    ['will-redirect', onWillRedirect],
     ['before-input-event', onBeforeInputEvent],
   ];
   for (const [eventName, listener] of listenerPairs) {
@@ -548,7 +587,11 @@ function createNewWindowTab(state, initialTarget = HOME_URL) {
   } else if (initialTarget === SETTINGS_URL || initialTarget.startsWith(SETTINGS_URL + '/') || initialTarget === DOWNLOADS_URL) {
     navigateNewWindowTab(state, tab, initialTarget);
   } else {
-    try { tab.view.webContents.loadURL(initialTarget).catch((err) => services.logError(`new-window-tab-${id}-load`, err)); } catch (e) { }
+    if (isNewWindowSiteBlocked(initialTarget)) {
+      sendSiteBlockedFeedback(state, initialTarget);
+    } else {
+      try { tab.view.webContents.loadURL(initialTarget).catch((err) => services.logError(`new-window-tab-${id}-load`, err)); } catch (e) { }
+    }
   }
 
   return id;
@@ -671,6 +714,10 @@ function navigateNewWindowTab(state, tab, target) {
     try {
       if (state.win && !state.win.isDestroyed()) state.win.webContents.send(NW + 'navigation-invalid');
     } catch (e) { }
+    return;
+  }
+  if (isNewWindowSiteBlocked(normalized)) {
+    sendSiteBlockedFeedback(state, normalized);
     return;
   }
   tab.isInternalHome = false;
@@ -1326,14 +1373,35 @@ function registerNewWindowIpc() {
   });
 
   // Shared store
+  // Sensitive keys (e.g. groqApiKey) are blocked from generic access.
   handle('nw-store-get', (event, key) => {
     if (typeof key !== 'string' || !key || key.length > 256) throw new Error('Invalid store key');
+    if (services.sensitiveStoreKeys && services.sensitiveStoreKeys.has(key)) {
+      throw new Error('Access denied: sensitive store key');
+    }
     return services.store ? services.store.get(key) : undefined;
   });
 
   handle('nw-store-set', (event, key, value) => {
     if (typeof key !== 'string' || !key || key.length > 256) throw new Error('Invalid store key');
+    if (services.sensitiveStoreKeys && services.sensitiveStoreKeys.has(key)) {
+      throw new Error('Access denied: sensitive store key');
+    }
     if (services.store) services.store.set(key, value);
+    return true;
+  });
+
+  // ── INVOKE: purpose-specific Groq API key ──────────────────
+  handle('nw-get-groq-api-key', (event) => {
+    try {
+      return services.store ? (services.store.get('groqApiKey') || '') : '';
+    } catch (e) {
+      return '';
+    }
+  });
+  handle('nw-set-groq-api-key', (event, apiKey) => {
+    if (typeof apiKey !== 'string') throw new Error('Invalid API key');
+    if (services.store) services.store.set('groqApiKey', apiKey);
     return true;
   });
 

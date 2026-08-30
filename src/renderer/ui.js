@@ -3,6 +3,8 @@
 //  Surface-based, keyboard-first, instant-feeling UX.
 // ============================================================
 
+import { sanitizeFaviconUrl } from './favicon-sanitizer.js';
+
 const HOME_PAGE_URL = 'kairon://home';
 
 // ── INCOGNITO STATE ────────────────────────────────────────────
@@ -495,8 +497,9 @@ export function createUiController(kairon, store, onLayoutChange) {
 
   function _buildBookmarkBarItem(bm) {
     const faviconUrl = (bm.favicon && typeof bm.favicon === 'string') ? bm.favicon : '';
-    const img = faviconUrl
-      ? `<img src="${faviconUrl.replace(/"/g, '&quot;')}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'">`
+    const safeFaviconUrl = sanitizeFaviconUrl(faviconUrl);
+    const img = safeFaviconUrl
+      ? `<img src="${safeFaviconUrl}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'">`
       : '';
     return '<button type="button" class="bookmarks-bar-item" data-url="' + bm.url.replace(/"/g, '&quot;') + '" data-id="' + bm.id + '" title="' + bm.url.replace(/"/g, '&quot;') + '">'
       + img
@@ -1499,6 +1502,11 @@ export function createUiController(kairon, store, onLayoutChange) {
     } catch (err) {
       if (UI_DIAG) console.error('[OMNIBAR] autocomplete error:', err);
       _hideSuggestions();
+      // Fallback: always show at least a search suggestion so the
+      // omnibox dropdown is never completely empty.
+      if (query && query.trim().length > 0) {
+        _showSearchOnlySuggestions(query.trim());
+      }
     }
   }
 
@@ -1646,16 +1654,22 @@ export function createUiController(kairon, store, onLayoutChange) {
   }
 
   function onAdblockEvent(payload) {
-    totalCount += 1;
-    const wasBlocked = !!(payload && payload.blocked);
-    if (wasBlocked) blockedCount += 1;
+    // Support batched events from main process: payload._batched means
+    // this is a summary of multiple blocked/total events accumulated
+    // over a 150ms window.
+    if (payload && payload._batched) {
+      totalCount += (payload.totalCount || 0);
+      blockedCount += (payload.blockedCount || 0);
+    } else {
+      totalCount += 1;
+      const wasBlocked = !!(payload && payload.blocked);
+      if (wasBlocked) blockedCount += 1;
+    }
     const notBlocked = Math.max(0, totalCount - blockedCount);
     if (totalNum) totalNum.textContent = String(totalCount);
     if (blockedNum) blockedNum.textContent = String(blockedCount);
     if (notBlockedNum) notBlockedNum.textContent = String(notBlocked);
-    if (wasBlocked && blockedNum) {
-      // Theme token: resolves to #34d39b in dark mode (unchanged) and the
-      // darker light-theme green in light mode.
+    if ((payload && payload.blocked) && blockedNum) {
       blockedNum.style.color = 'var(--color-success)';
       setTimeout(() => { blockedNum.style.color = ''; }, 500);
     }

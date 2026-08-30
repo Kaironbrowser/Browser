@@ -6,23 +6,36 @@
 
 // ── LIGHTWEIGHT MARKDOWN ─────────────────────────────────────
 function _md(text) {
-  return text
+  // SECURITY: Escape HTML entities in the entire input FIRST so that any
+  // user/API-controlled text is neutralized before markdown syntax is applied.
+  // Markdown syntax chars (*, #, [, etc.) are unaffected by HTML escaping,
+  // so regex matching still works.  Generated HTML elements (<strong>, <a>,
+  // etc.) are safe because they come from our regex replacements, not from
+  // untrusted input.
+  const safe = _escHtml(text);
+
+  return safe
     // Code blocks (must come before inline code)
     .replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) =>
-      `<pre style="background:var(--ai-code-bg);border:1px solid var(--ai-code-border);border-radius:8px;padding:10px 12px;overflow-x:auto;font-family:var(--font-mono);font-size:11.5px;line-height:1.6;margin:6px 0"><code>${_escHtml(code.trim())}</code></pre>`
+      `<pre style="background:var(--ai-code-bg);border:1px solid var(--ai-code-border);border-radius:8px;padding:10px 12px;overflow-x:auto;font-family:var(--font-mono);font-size:11.5px;line-height:1.6;margin:6px 0"><code>${code.trim()}</code></pre>`
     )
     // Inline code
     .replace(/`([^`]+)`/g, (_, c) =>
-      `<code style="background:var(--ai-inline-code-bg);border-radius:4px;padding:1px 5px;font-family:var(--font-mono);font-size:11.5px">${_escHtml(c)}</code>`
+      `<code style="background:var(--ai-inline-code-bg);border-radius:4px;padding:1px 5px;font-family:var(--font-mono);font-size:11.5px">${c}</code>`
+    )
+    // Links — reject URLs containing double-quote (appears as &amp;quot; after
+    // escaping) which could break out of the href attribute.  The https?://
+    // regex already blocks javascript:/data: protocols.
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g,
+      (_, linkText, url) => {
+        if (/&quot;/.test(url)) return linkText;
+        return `<a href="${url}" style="color:var(--text-accent);text-decoration:none;border-bottom:1px solid var(--ai-link-underline)" target="_blank" rel="noopener">${linkText}</a>`;
+      }
     )
     // Bold
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     // Italic
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // Links
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g,
-      '<a href="$2" style="color:var(--text-accent);text-decoration:none;border-bottom:1px solid var(--ai-link-underline)" target="_blank" rel="noopener">$1</a>'
-    )
     // Unordered list items
     .replace(/^[\*\-] (.+)$/gm, '<li style="margin-left:14px;margin-top:3px">$1</li>')
     // Numbered list items
@@ -240,14 +253,14 @@ export function initAiPanel(kairon) {
     _appendMsg('user', `<p style="margin:0">${_escHtml(text)}</p>`);
 
     // Get API key
-    const apiKey = await kairon.storeGet('groqApiKey').catch(() => null);
+    const apiKey = await kairon.getGroqApiKey().catch(() => null);
     if (!apiKey) {
       // Accurate BYOK guidance: this beta has no settings UI for the key yet.
       // The key lives in the internal store and can be set from the browser
       // window's DevTools console.
       const msg = 'No Groq API key configured. Kairon AI runs on **your own Groq API key** (bring-your-own-key). ' +
         'Key configuration is not available in this beta yet — to enable the panel, open the browser window\'s DevTools ' +
-        'console and run: `window.kairon.storeSet(\'groqApiKey\', \'your-groq-api-key\')`.';
+        'console and run: `window.kairon.setGroqApiKey(\'your-groq-api-key\')`.';
       history.push({ role: 'assistant', content: msg });
       const { bubble } = _appendMsg('assistant', '');
       await _streamText(bubble, msg);

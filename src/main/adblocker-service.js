@@ -59,8 +59,6 @@ class AdblockerService {
         guessRequestTypeFromUrl: true,
       };
       this._engineConfig = engineConfig;
-      console.info('[adblock] engine config', engineConfig, 'mode=', this.mode);
-
       // Select appropriate lists based on mode
       let selectedLists = this.lists;
       if (normalized === 'aggressive' || normalized === 'full') {
@@ -151,14 +149,12 @@ class AdblockerService {
         }
 
         const partitionStr = (targetSession && typeof targetSession.getPartition === 'function') ? targetSession.getPartition() : '(unknown)';
-        console.info('[adblock] target session partition:', partitionStr);
         if (partitionStr !== 'persist:browser') {
           console.warn('[adblock] target session partition is not "persist:browser" — ensure BrowserViews use same partition');
         }
 
         if (targetSession && typeof this.blocker.enableBlockingInSession === 'function') {
           try {
-            console.info('[adblock] calling enableBlockingInSession with method available...');
             this.blocker.enableBlockingInSession(targetSession);
             this.networkAttached = true;
             console.info('[adblock] ✓ NATIVE BLOCKING ENABLED IN SESSION', partitionStr);

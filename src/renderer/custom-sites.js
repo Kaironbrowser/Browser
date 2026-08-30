@@ -5,6 +5,21 @@
 
 const STORAGE_KEY = 'kairon:custom-sites';
 
+// ── FAVICON PROTOCOL VALIDATION (defense-in-depth) ─────────
+// Validates that a favicon URL uses only safe protocols before DOM assignment.
+// Prevents javascript:/vbscript: URLs from reaching img.src even if stored data
+// is compromised. HTML escaping is not needed for DOM API assignment.
+const SAFE_FAVICON_PROTOCOLS = new Set(['http:', 'https:', 'data:']);
+function _isSafeFaviconUrl(url) {
+  if (typeof url !== 'string' || !url) return false;
+  try {
+    const parsed = new URL(url);
+    if (!SAFE_FAVICON_PROTOCOLS.has(parsed.protocol)) return false;
+    if (parsed.protocol === 'data:' && !url.toLowerCase().startsWith('data:image/')) return false;
+    return true;
+  } catch { return false; }
+}
+
 // ── DATA LAYER ──────────────────────────────────────────────
 function _load() {
   try {
@@ -28,6 +43,7 @@ function _genId() {
 function _faviconUrl(url) {
   try {
     const { hostname } = new URL(url);
+    if (!hostname) return '';
     return `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
   } catch {
     return '';
@@ -37,6 +53,17 @@ function _faviconUrl(url) {
 function _hostFromUrl(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); }
   catch { return url; }
+}
+
+// Canonical URL for comparison: strip www., trailing slashes, normalize.
+// Does NOT mutate the stored URL — only used for duplicate detection.
+function _canonicalUrl(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, '');
+    const path = u.pathname.replace(/\/+$/, '') || '/';
+    return `${u.protocol}//${host}${path}${u.search}`;
+  } catch { return url; }
 }
 
 function _sanitize(str) {
@@ -55,6 +82,27 @@ function _normalizeUrl(raw) {
   return `https://search.brave.com/search?q=${encodeURIComponent(v)}`;
 }
 
+// Validate that a raw user input normalizes to a usable http(s) URL.
+// Returns { ok, url, error }.
+function _validateUrl(raw) {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return { ok: false, url: '', error: 'Enter a URL' };
+  const normalized = _normalizeUrl(trimmed);
+  if (!normalized) return { ok: false, url: '', error: 'Invalid URL' };
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return { ok: false, url: normalized, error: 'Only http/https URLs are supported' };
+    }
+    if (!parsed.hostname || parsed.hostname.length < 2) {
+      return { ok: false, url: normalized, error: 'Invalid hostname' };
+    }
+    return { ok: true, url: normalized, error: '' };
+  } catch {
+    return { ok: false, url: normalized, error: 'Invalid URL' };
+  }
+}
+
 // ── ICONS (monochrome SVGs matching Kairon's visual language) ──
 const ICON_GLOBE = `<svg width="16" height="16" viewBox="0 0 12 12" fill="none">
   <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/>
@@ -67,22 +115,34 @@ export function initCustomSites(navigate) {
   if (!grid) return;
 
   let sites = _load();
+  let _draggedId = null;
 
   // ── RENDER ──────────────────────────────────────────────
   function _render() {
     grid.innerHTML = '';
 
+    // Detect the currently active page URL for highlight
+    let activeUrl = '';
+    try {
+      const raw = (document.getElementById('address-bar')?.value || '').trim();
+      if (raw) activeUrl = _normalizeUrl(raw);
+    } catch {}
+
     for (const site of sites) {
       const tile = document.createElement('div');
       tile.className = 'cs-tile';
       tile.dataset.id = site.id;
-      tile.title = `${site.name}\n${site.url}`;
       tile.draggable = true;
+
+      // Highlight tile if its URL matches the active page
+      if (activeUrl && _canonicalUrl(site.url) === _canonicalUrl(activeUrl)) {
+        tile.classList.add('cs-active');
+      }
 
       // Favicon container
       const fav = document.createElement('div');
       fav.className = 'cs-favicon';
-      if (site.favicon) {
+      if (site.favicon && _isSafeFaviconUrl(site.favicon)) {
         const img = document.createElement('img');
         img.src = site.favicon;
         img.alt = '';
@@ -103,6 +163,9 @@ export function initCustomSites(navigate) {
 
       tile.appendChild(fav);
       tile.appendChild(label);
+
+      // Tooltip: show full name + URL on hover
+      tile.title = `${site.name}\n${site.url}`;
 
       // Click → navigate
       tile.addEventListener('click', (e) => {
@@ -131,14 +194,21 @@ export function initCustomSites(navigate) {
         e.dataTransfer.setData('text/plain', site.id);
         e.dataTransfer.effectAllowed = 'move';
         tile.classList.add('cs-dragging');
+        _draggedId = site.id;
       });
       tile.addEventListener('dragend', () => {
         tile.classList.remove('cs-dragging');
+        _draggedId = null;
+        // Clean up any lingering drop indicators
+        grid.querySelectorAll('.cs-drag-over').forEach(el => el.classList.remove('cs-drag-over'));
       });
       tile.addEventListener('dragover', (e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
-        tile.classList.add('cs-drag-over');
+        // Only highlight the target if it's not the dragged item itself
+        if (_draggedId && _draggedId !== site.id) {
+          tile.classList.add('cs-drag-over');
+        }
       });
       tile.addEventListener('dragleave', () => {
         tile.classList.remove('cs-drag-over');
@@ -160,6 +230,8 @@ export function initCustomSites(navigate) {
   function _addSite(url, name) {
     const normalized = _normalizeUrl(url);
     if (!normalized) return;
+    // Prevent duplicates (canonical: strips www., trailing slash)
+    if (sites.some((s) => _canonicalUrl(s.url) === _canonicalUrl(normalized))) return;
     sites.push({
       id: _genId(),
       url: normalized,
@@ -275,7 +347,8 @@ export function initCustomSites(navigate) {
       <label class="cs-dialog-label">Name</label>
       <input class="cs-dialog-input" type="text" value="${_sanitize(site.name)}" placeholder="Site name" />
       <label class="cs-dialog-label">URL</label>
-      <input class="cs-dialog-input" type="text" value="${_sanitize(site.url)}" placeholder="https://example.com" />
+      <input class="cs-dialog-input cs-dialog-input-url" type="text" value="${_sanitize(site.url)}" placeholder="https://example.com" />
+      <div class="cs-dialog-error" hidden></div>
       <div class="cs-dialog-actions">
         <button class="cs-dialog-btn cs-dialog-cancel" type="button">Cancel</button>
         <button class="cs-dialog-btn cs-dialog-save" type="button">Save</button>
@@ -286,9 +359,25 @@ export function initCustomSites(navigate) {
     document.body.appendChild(overlay);
 
     const nameInput = dialog.querySelector('input:first-of-type');
-    const urlInput = dialog.querySelector('input:last-of-type');
+    const urlInput = dialog.querySelector('.cs-dialog-input-url');
+    const errorEl = dialog.querySelector('.cs-dialog-error');
     nameInput.focus();
     nameInput.select();
+
+    function _showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.hidden = false;
+      urlInput.classList.add('cs-dialog-input-error');
+    }
+
+    function _clearError() {
+      errorEl.textContent = '';
+      errorEl.hidden = true;
+      urlInput.classList.remove('cs-dialog-input-error');
+    }
+
+    // Clear error on input
+    urlInput.addEventListener('input', _clearError);
 
     const close = () => overlay.remove();
 
@@ -299,11 +388,29 @@ export function initCustomSites(navigate) {
     });
 
     const save = () => {
+      _clearError();
       const newName = nameInput.value.trim();
       const newUrl = urlInput.value.trim();
-      if (newUrl) site.url = _normalizeUrl(newUrl);
+
+      // Validate URL
+      const validation = _validateUrl(newUrl);
+      if (!validation.ok) {
+        _showError(validation.error);
+        urlInput.focus();
+        return;
+      }
+
+      // Check for duplicates (excluding the site being edited)
+      const isDuplicate = sites.some((s) => s.id !== site.id && _canonicalUrl(s.url) === _canonicalUrl(validation.url));
+      if (isDuplicate) {
+        _showError('This site is already added');
+        urlInput.focus();
+        return;
+      }
+
       if (newName) site.name = newName;
-      if (site.url) site.favicon = _faviconUrl(site.url);
+      site.url = validation.url;
+      site.favicon = _faviconUrl(site.url);
       _save(sites);
       _render();
       close();
@@ -319,7 +426,7 @@ export function initCustomSites(navigate) {
     if (!url) return false;
     try {
       const normalized = _normalizeUrl(url);
-      return sites.some((s) => s.url === normalized);
+      return sites.some((s) => _canonicalUrl(s.url) === _canonicalUrl(normalized));
     } catch { return false; }
   }
 
@@ -327,9 +434,9 @@ export function initCustomSites(navigate) {
     if (!url) return false;
     const normalized = _normalizeUrl(url);
     if (!normalized) return false;
-    const existing = sites.find((s) => s.url === normalized);
+    const existing = sites.find((s) => _canonicalUrl(s.url) === _canonicalUrl(normalized));
     if (existing) {
-      sites = sites.filter((s) => s.url !== normalized);
+      sites = sites.filter((s) => s.id !== existing.id);
       _save(sites);
       _render();
       return false; // removed
@@ -343,12 +450,6 @@ export function initCustomSites(navigate) {
     _save(sites);
     _render();
     return true; // added
-  }
-
-  // Expose on window.kairon for IPC calls from the overlay window
-  if (window.kairon) {
-    window.kairon.isCustomSite = isCustomSite;
-    window.kairon.toggleCustomSite = toggleCustomSite;
   }
 
   // Listen for IPC-driven updates (when overlay toggles a custom site)

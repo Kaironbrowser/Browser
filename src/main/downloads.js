@@ -453,6 +453,45 @@ class DownloadManager {
     return this._history.find((r) => r.id === id) || null;
   }
 
+  // Retry a failed/interrupted download by re-downloading the same URL.
+  // Removes the old entry and creates a fresh download via Electron.
+  retry(id) {
+    const record = this._getRecord(id);
+    if (!record || !record.url) return false;
+    if (record.state !== 'failed' && record.state !== 'interrupted') return false;
+    // Remove the old entry from history so the retry replaces it cleanly.
+    this._history = this._history.filter((r) => r.id !== id);
+    this._persistHistory();
+    this._flushPush();
+    // Trigger a fresh Electron download for the same URL.
+    try {
+      const { session: sess, BrowserWindow } = require('electron');
+      const targetSession = sess.fromPartition('persist:browser');
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        win.webContents.downloadURL(record.url);
+        return true;
+      }
+    } catch (e) { /* retry failed — the entry is already removed */ }
+    return false;
+  }
+
+  // Remove a single completed/failed/cancelled entry from the visible list.
+  // Files on disk are never deleted.
+  removeDownload(id) {
+    const entry = this._live.get(id);
+    if (entry) return false; // don't remove active downloads
+    const beforeH = this._history.length;
+    this._history = this._history.filter((r) => r.id !== id);
+    if (this._history.length !== beforeH) this._persistHistory();
+    const beforeC = this._cancelled.length;
+    this._cancelled = this._cancelled.filter((r) => r.id !== id);
+    if (this._cancelled.length !== beforeC || this._history.length !== beforeH) {
+      this._flushPush();
+    }
+    return true;
+  }
+
   // ── BROADCAST ────────────────────────────────────────────
 
   _schedulePush() {

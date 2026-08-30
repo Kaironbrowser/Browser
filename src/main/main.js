@@ -21,6 +21,7 @@ const {
   broadcastSettingsToIncognito,
   isIncognitoChromeWebContents,
   isIncognitoTabWebContents,
+  isIncognitoOverlayWebContents,
 } = require('./incognito');
 const {
   openNewWindow,
@@ -183,15 +184,13 @@ function installTelemetryRequestBlocker(targetSession) {
             const cached = _nativeDecisionCache.get(cacheKey);
             if (cached !== undefined && cached && typeof cached === 'object' && 'blocked' in cached) {
               if (cached.blocked) {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.webContents.send('adblock-event', {
-                    url: details.url,
-                    blocked: true,
-                    rule: cached.rule || '',
-                    resourceType: details.resourceType,
-                    domain: cached.domain || '',
-                  });
-                }
+                sendAdblockEvent({
+                  url: details.url,
+                  blocked: true,
+                  rule: cached.rule || '',
+                  resourceType: details.resourceType,
+                  domain: cached.domain || '',
+                });
               }
               if (cached.cancel) callback({ cancel: true });
               else if (cached.redirectURL) callback({ redirectURL: cached.redirectURL });
@@ -569,6 +568,39 @@ const tabSleepManager = new TabSleepManager({
   onStateChange: () => emitTabsState(),
 });
 
+// ── BATCHED ADBLOCK EVENTS ─────────────────────────────────
+// The native adblocker fires onBlocked for every blocked request. Sending
+// individual IPCs for each (potentially hundreds per page load) is wasteful
+// since the renderer only needs aggregate counts. This batches events and
+// flushes every 150ms, sending at most one IPC per flush window.
+let _adblockBatch = { blocked: 0, total: 0, lastPayload: null };
+let _adblockBatchTimer = null;
+function _flushAdblockBatch() {
+  _adblockBatchTimer = null;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const { blocked, total, lastPayload } = _adblockBatch;
+  _adblockBatch = { blocked: 0, total: 0, lastPayload: null };
+  if (total === 0) return;
+  // Send a summary event so the renderer can batch-update its counters.
+  mainWindow.webContents.send('adblock-event', {
+    _batched: true,
+    blockedCount: blocked,
+    totalCount: total,
+    // Include the last individual event so the renderer can still show
+    // the flash animation for the most recent block.
+    ...(lastPayload || {}),
+  });
+}
+function sendAdblockEvent(payload) {
+  const wasBlocked = !!(payload && payload.blocked);
+  _adblockBatch.total++;
+  if (wasBlocked) _adblockBatch.blocked++;
+  _adblockBatch.lastPayload = payload;
+  if (!_adblockBatchTimer) {
+    _adblockBatchTimer = setTimeout(_flushAdblockBatch, 150);
+  }
+}
+
 const RAIL_WIDTH = 256; // 10px body padding + 236px left-rail width + 10px gap (matches CSS --rail-w: 236px)
 // Application menu overlay sizing — width must match #app-menu in overlay.html.
 // The height is an initial estimate; the overlay reports its exact natural
@@ -733,6 +765,135 @@ function isTabBrowserView(event) {
   // Additional normal windows (Ctrl+N) tabs are also recognized
   if (isNewWindowTabWebContents(event.sender)) return true;
   return false;
+}
+
+// ── PERMISSION POLICY ───────────────────────────────────────────
+// Deny-by-default permission policy for untrusted web content. Trusted
+// browser chrome (main window, overlay, additional windows) receives
+// all requested permissions. Normal web pages loaded in tabs receive only
+// permissions required for standard browsing (clipboard, fullscreen).
+// Sensitive permissions (camera, microphone, geolocation, notifications,
+// screen capture) are denied for untrusted content.
+
+// Permissions that are always allowed for all sources (clipboard operations
+// for copy/paste and fullscreen for the HTML Fullscreen API).
+const PERMISSION_ALLOW_ALWAYS = new Set([
+  'clipboard-read',
+  'clipboard-sanitized-write',
+  'clipboard-write',
+  'fullscreen',
+]);
+
+// Permissions that are always denied (sensitive hardware/system access).
+const PERMISSION_DENY_ALWAYS = new Set([
+  'camera',
+  'microphone',
+  'geolocation',
+  'notifications',
+  'display-capture',
+  'screen',
+  'screen-capture',
+  'midi',
+  'midi-sysex',
+  'sensor',
+  'idle-detection',
+  'serial',
+  'usb',
+  'hid',
+]);
+
+/**
+ * Determine whether a webContents belongs to trusted Kairon browser chrome
+ * (as opposed to untrusted web content loaded in a tab). Trusted sources
+ * receive all requested permissions; untrusted sources follow the
+ * deny-by-default policy.
+ *
+ * Trust is based on whether the webContents is a known chrome window or
+ * overlay — never on whether it simply comes from the browser's session.
+ * A normal website loaded in a tab BrowserView is NOT trusted, even though
+ * it shares the same Electron session.
+ */
+function isTrustedBrowserWebContents(wc) {
+  if (!wc || wc.isDestroyed()) return false;
+  // Main browser chrome
+  if (mainWindow && !mainWindow.isDestroyed() && wc === mainWindow.webContents) return true;
+  // Main overlay (omnibox suggestions, downloads panel, app menu, etc.)
+  if (overlayWindow && !overlayWindow.isDestroyed() && wc === overlayWindow.webContents) return true;
+  // Incognito chrome and overlay
+  if (isIncognitoChromeWebContents(wc) || isIncognitoOverlayWebContents(wc)) return true;
+  // Additional normal windows (Ctrl+N) chrome and overlay
+  if (isNewWindowChromeSender({ sender: wc }) || isNewWindowOverlaySender({ sender: wc })) return true;
+  return false;
+}
+
+/**
+ * Install deny-by-default permission handlers on an Electron session.
+ * Called once for the main browsing session (persist:browser) and once for
+ * the incognito session (incognito). Each session gets its own independent
+ * handlers; permission grants are per-session and never cross the boundary.
+ */
+function setupSessionPermissionHandlers(sess) {
+  if (!sess) return;
+  try {
+    // ── Permission Request Handler ─────────────────────────────
+    // Called when a web page requests a permission (camera, microphone, etc.).
+    // Deny-by-default: only trusted chrome and explicitly allowed permissions
+    // (clipboard, fullscreen) are granted.
+    sess.setPermissionRequestHandler((webContents, permission, callback) => {
+      try {
+        // Always allow explicitly safe permissions (clipboard, fullscreen)
+        if (PERMISSION_ALLOW_ALWAYS.has(permission)) {
+          // Notify tab-sleep if this is a capture-related permission that we
+          // are allowing (clipboard-write is not capture, but be defensive)
+          try { tabSleepManager.onCapturePermissionGranted(webContents); } catch (e) { }
+          return callback(true);
+        }
+
+        // Always deny sensitive permissions
+        if (PERMISSION_DENY_ALWAYS.has(permission)) {
+          try { tabSleepManager.onCapturePermissionDenied(webContents); } catch (e) { }
+          return callback(false);
+        }
+
+        // For any other permission: grant only to trusted browser chrome
+        const trusted = isTrustedBrowserWebContents(webContents);
+        if (trusted) {
+          try { tabSleepManager.onCapturePermissionGranted(webContents); } catch (e) { }
+          return callback(true);
+        }
+
+        // Unknown permission from untrusted source: deny
+        try { tabSleepManager.onCapturePermissionDenied(webContents); } catch (e) { }
+        callback(false);
+      } catch (e) {
+        // Fail-closed: deny on internal error
+        try { callback(false); } catch (e2) { }
+      }
+    });
+
+    // ── Permission Check Handler ───────────────────────────────
+    // Called when Chromium checks whether a permission is currently granted
+    // (e.g. before calling navigator.permissions.query()). Uses the same
+    // deny-by-default policy as the request handler.
+    sess.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+      try {
+        // Always allow explicitly safe permissions
+        if (PERMISSION_ALLOW_ALWAYS.has(permission)) return true;
+
+        // Always deny sensitive permissions
+        if (PERMISSION_DENY_ALWAYS.has(permission)) return false;
+
+        // For any other permission: grant only to trusted browser chrome
+        const trusted = isTrustedBrowserWebContents(webContents);
+        return !!trusted;
+      } catch (e) {
+        // Fail-closed: deny on internal error
+        return false;
+      }
+    });
+  } catch (e) {
+    logError('permission-handler-setup', e);
+  }
 }
 
 // The internal history page (loaded via loadFile from HISTORY_PAGE_FILE) is
@@ -1246,7 +1407,7 @@ function attachAggressiveFallbackToSession(sess) {
             if (cachedDecision.blocked) {
               _aggressiveBlockedCount++;
               if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('adblock-event', {
+                sendAdblockEvent( {
                   url: details.url,
                   blocked: true,
                   rule: cachedDecision.rule,
@@ -1325,7 +1486,7 @@ function attachAggressiveFallbackToSession(sess) {
           _urlDecisionCache.set(cacheKey, decision, 30 * 60 * 1000);
           _aggressiveBlockedCount++;
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('adblock-event', {
+            sendAdblockEvent( {
               url: details.url,
               blocked: true,
               rule: matchedRule,
@@ -1364,7 +1525,6 @@ function attachAggressiveFallbackToSession(sess) {
           'https://easylist.to/easylist/easylist.txt',
           'https://easylist.to/easylist/easyprivacy.txt',
         ];
-        console.info('[adblock] fetching EasyList patterns for fallback blocker...');
         const generatedPatterns = await generateHostPatterns(listUrls, 5000);
         if (Array.isArray(generatedPatterns) && generatedPatterns.length > 0) {
           for (const p of generatedPatterns) {
@@ -1384,7 +1544,6 @@ function attachAggressiveFallbackToSession(sess) {
         }
       } catch (e) {
         console.error('[adblock] failed to fetch EasyList patterns:', e && e.stack ? e.stack : e);
-        console.info('[adblock] continuing with built-in tracker list');
       }
     })();
 
@@ -1527,7 +1686,7 @@ function handleEnterHtmlFullScreen(tabId) {
   }
   tab._lastBounds = null;
   updateBounds();
-  console.info('[fullscreen] enter html full-screen tab', tabId);
+  diag('[fullscreen] enter html full-screen tab', tabId);
 }
 
 /**
@@ -1546,7 +1705,7 @@ function handleLeaveHtmlFullScreen(tabId) {
   const tab = tabs.get(tabId);
   if (tab) tab._lastBounds = null;
   updateBounds();
-  console.info('[fullscreen] leave html full-screen tab', tabId);
+  diag('[fullscreen] leave html full-screen tab', tabId);
 }
 
 /**
@@ -1597,7 +1756,7 @@ function toggleBrowserFullscreen() {
     tab._lastBounds = null;
     updateBounds();
   }
-  console.info('[fullscreen] F11 window fullscreen ->', nextState);
+  diag('[fullscreen] F11 window fullscreen ->', nextState);
 }
 
 function sanitizeTabSnapshot(raw) {
@@ -1778,14 +1937,25 @@ function getTabPublicState(tab) {
   };
 }
 
+// Throttled tabs-state emitter: collapses rapid-fire events (did-navigate +
+// page-title-updated + loading in <5 ms) into a single IPC + persist cycle.
+// Uses a microtask gate so the flush happens before the next frame but after
+// the current synchronous call stack drains — perceptible delay = 0.
+let _tabsStatePending = false;
 function emitTabsState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  const payload = {
-    activeTabId,
-    tabs: Array.from(tabs.values()).map(getTabPublicState),
-  };
-  mainWindow.webContents.send('tabs-state', payload);
-  persistSession();
+  if (_tabsStatePending) return; // already scheduled — skip redundant work
+  _tabsStatePending = true;
+  queueMicrotask(() => {
+    _tabsStatePending = false;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const payload = {
+      activeTabId,
+      tabs: Array.from(tabs.values()).map(getTabPublicState),
+    };
+    mainWindow.webContents.send('tabs-state', payload);
+    persistSession();
+  });
 }
 
 function sendActiveTabSignals() {
@@ -1996,6 +2166,25 @@ function navigateTabToTarget(tab, target) {
     if (DIAG) console.info('[tab] navigation target rejected', target);
     return;
   }
+  // Defense in depth: reject blocked sites before loadURL(). Callers are
+  // expected to check isSiteBlocked before calling this function, but this
+  // guard ensures a blocked URL can never reach loadURL() regardless of
+  // how navigateTabToTarget is invoked (popup, redirect, future caller).
+  if (isSiteBlocked(target)) {
+    if (DIAG) console.info('[tab] navigation target blocked by site-blocker', target);
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        sendAdblockEvent( {
+          url: target,
+          blocked: true,
+          rule: 'site-blocker',
+          resourceType: 'navigation',
+          domain: (() => { try { return new URL(target).hostname; } catch { return null; } })(),
+        });
+      }
+    } catch (e) { }
+    return;
+  }
 
   // Internal → internal navigation gets the entrance transition. It only
   // fires when the current tab is already showing a Kairon-owned internal
@@ -2087,6 +2276,31 @@ function navigateTabToTarget(tab, target) {
  * Creates a simple window without the full Kairon chrome UI.
  */
 function openLinkInNewWindow(url) {
+  // Validate the URL through the same navigation guards as all other
+  // user-initiated navigation paths (address bar, context menu, IPC).
+  const target = normalizeNavigationTarget(url);
+  if (!target) {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('navigation-invalid', { input: typeof url === 'string' ? url : '' });
+      }
+    } catch (e) { }
+    return;
+  }
+  if (isSiteBlocked(target)) {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        sendAdblockEvent( {
+          url: target,
+          blocked: true,
+          rule: 'site-blocker',
+          resourceType: 'navigation',
+          domain: (() => { try { return new URL(target).hostname; } catch { return null; } })(),
+        });
+      }
+    } catch (e) { }
+    return;
+  }
   try {
     const win = new BrowserWindow({
       width: 1200,
@@ -2111,7 +2325,7 @@ function openLinkInNewWindow(url) {
     standaloneWindows.add(win);
     win.on('closed', () => { standaloneWindows.delete(win); });
 
-    win.loadURL(url).catch((err) => logError('new-window-load', err));
+    win.loadURL(target).catch((err) => logError('new-window-load', err));
     win.once('ready-to-show', () => {
       try {
         win.show();
@@ -2204,7 +2418,7 @@ function createTab(initialTarget = HOME_PAGE_URL) {
         event.preventDefault();
         try {
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('adblock-event', {
+            sendAdblockEvent( {
               url,
               blocked: true,
               rule: isSiteBlocked(url) ? 'site-blocker' : 'navigation-invalid',
@@ -2232,7 +2446,28 @@ function createTab(initialTarget = HOME_PAGE_URL) {
   };
 
   const onWillRedirect = (event, url, isInPlace, isMainFrame) => {
-    if (!isMainFrame || !featureStore.isEnabled('httpsOnlyMode') || !isPlainHttpUrl(url)) return;
+    if (!isMainFrame) return;
+    // Site-blocker enforcement: prevent redirects to blocked domains.
+    // This check runs regardless of HTTPS-only mode so blocked domains
+    // can never be reached through server-side redirects.
+    if (isSiteBlocked(url)) {
+      event.preventDefault();
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          sendAdblockEvent( {
+            url,
+            blocked: true,
+            rule: 'site-blocker',
+            resourceType: 'navigation',
+            domain: (() => { try { return new URL(url).hostname; } catch { return null; } })(),
+          });
+        }
+      } catch (e) { }
+      return;
+    }
+    // HTTPS-only mode: intercept plain-HTTP redirects and either upgrade
+    // or show the HTTPS-only warning.
+    if (!featureStore.isEnabled('httpsOnlyMode') || !isPlainHttpUrl(url)) return;
     event.preventDefault();
     if (tab.httpsUpgradeAttempt) {
       showHttpsOnlyWarning(tab, tab.httpsUpgradeAttempt.httpUrl);
@@ -2489,12 +2724,27 @@ function createTab(initialTarget = HOME_PAGE_URL) {
     if (!safePopupTarget) {
       try {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('adblock-event', {
+          sendAdblockEvent( {
             url,
             blocked: true,
             rule: 'popup-blocker',
             resourceType: 'popup',
             domain: (() => { try { return new URL(url).hostname; } catch { return null; } })(),
+          });
+        }
+      } catch (e) { }
+      return { action: 'deny' };
+    }
+    // Site-blocker enforcement: prevent popups to blocked domains.
+    if (isSiteBlocked(safePopupTarget)) {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          sendAdblockEvent( {
+            url: safePopupTarget,
+            blocked: true,
+            rule: 'site-blocker',
+            resourceType: 'popup',
+            domain: (() => { try { return new URL(safePopupTarget).hostname; } catch { return null; } })(),
           });
         }
       } catch (e) { }
@@ -2564,6 +2814,30 @@ function createTab(initialTarget = HOME_PAGE_URL) {
       const newTabId = createTab(searchUrl);
       switchToTab(newTabId);
     },
+    onOpenInCurrentTab: (url) => {
+      const target = normalizeNavigationTarget(url);
+      if (!target) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('navigation-invalid', { input: typeof url === 'string' ? url : '' });
+        }
+        return;
+      }
+      if (isSiteBlocked(target)) {
+        try {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            sendAdblockEvent( {
+              url: target,
+              blocked: true,
+              rule: 'site-blocker',
+              resourceType: 'navigation',
+              domain: (() => { try { return new URL(target).hostname; } catch { return null; } })(),
+            });
+          }
+        } catch (e) { }
+        return;
+      }
+      navigateTabToTarget(tab, target);
+    },
     onOpenInNewTab: (url) => {
       const newTabId = createTab(url);
       switchToTab(newTabId);
@@ -2586,7 +2860,6 @@ function createTab(initialTarget = HOME_PAGE_URL) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const buffer = Buffer.from(await response.arrayBuffer());
         fs.writeFileSync(result.filePath, buffer);
-        console.info('[context-menu] saved image to', result.filePath);
       } catch (err) {
         logError('save-image-as', err);
         console.error('[context-menu] save image as failed:', err);
@@ -3081,6 +3354,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: false,
+      sandbox: true,
     },
     show: false,
   });
@@ -4075,7 +4349,7 @@ async function reconfigureAdblocker() {
       onBlocked: (payload) => {
         try {
           _nativeBlockedCount += 1;
-          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('adblock-event', payload);
+          sendAdblockEvent(payload);
           if (DIAG) console.info('[adblock] blocked', payload && payload.url, 'rule=', payload && payload.rule);
         } catch (e) { }
       }
@@ -4226,7 +4500,7 @@ ipcMain.on('navigate', (event, url) => {
   if (isSiteBlocked(target)) {
     try {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('adblock-event', {
+        sendAdblockEvent( {
           url: target,
           blocked: true,
           rule: 'site-blocker',
@@ -4258,7 +4532,7 @@ ipcMain.on('open-history-entry', (event, url) => {
   if (isSiteBlocked(target)) {
     try {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('adblock-event', {
+        sendAdblockEvent( {
           url: target,
           blocked: true,
           rule: 'site-blocker',
@@ -4507,7 +4781,7 @@ ipcMain.on('layout-metrics', (event, metrics) => {
     // Log if clamping occurred
     if (layoutMetrics.x !== rawLayoutMetrics.x || layoutMetrics.y !== rawLayoutMetrics.y ||
         layoutMetrics.width !== rawLayoutMetrics.width || layoutMetrics.height !== rawLayoutMetrics.height) {
-      console.warn('[BOUNDS-DIAG] *** STALE MEASUREMENT DETECTED: clamped layoutMetrics at storage:', {
+      diagWarn('[BOUNDS-DIAG] *** STALE MEASUREMENT DETECTED: clamped layoutMetrics at storage:', {
         raw: rawLayoutMetrics,
         clamped: layoutMetrics,
         currentContentSize: { w: currentW, h: currentH }
@@ -4517,7 +4791,7 @@ ipcMain.on('layout-metrics', (event, metrics) => {
     layoutMetrics = rawLayoutMetrics;
   }
 
-  console.info('[BOUNDS-DIAG] IPC layout-metrics stored as:', JSON.stringify(layoutMetrics));
+  diag('[BOUNDS-DIAG] IPC layout-metrics stored as:', JSON.stringify(layoutMetrics));
   updateBounds();
 });
 
@@ -4593,10 +4867,22 @@ ipcMain.on('window-close', (event) => {
   mainWindow.close();
 });
 
+// ── SENSITIVE STORE KEYS ──────────────────────────────────────
+// Keys that must NOT be accessible through the generic store-get / store-set
+// IPC channels. These contain secrets or privileged configuration that a
+// compromised renderer must not be able to exfiltrate or overwrite.
+// Purpose-specific IPC handlers exist for legitimately needed values.
+const SENSITIVE_STORE_KEYS = new Set([
+  'groqApiKey',
+]);
+
 ipcMain.handle('store-get', (event, key) => {
   if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
   if (typeof key !== 'string' || !key || key.length > MAX_STORE_KEY_LENGTH) {
     throw new Error('Invalid store key');
+  }
+  if (SENSITIVE_STORE_KEYS.has(key)) {
+    throw new Error('Access denied: sensitive store key');
   }
   return store.get(key);
 });
@@ -4605,7 +4891,30 @@ ipcMain.handle('store-set', (event, key, value) => {
   if (typeof key !== 'string' || !key || key.length > MAX_STORE_KEY_LENGTH) {
     throw new Error('Invalid store key');
   }
+  if (SENSITIVE_STORE_KEYS.has(key)) {
+    throw new Error('Access denied: sensitive store key');
+  }
   store.set(key, value);
+  return true;
+});
+
+// ── PURPOSE-SPECIFIC: Groq API Key ────────────────────────────
+// The AI panel needs to read the Groq API key. Instead of exposing it
+// through generic store access, a narrow IPC handler provides read/write
+// only to trusted browser chrome. The key is never exposed to untrusted
+// webpage tabs.
+ipcMain.handle('get-groq-api-key', (event) => {
+  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  try {
+    return store.get('groqApiKey') || '';
+  } catch (e) {
+    return '';
+  }
+});
+ipcMain.handle('set-groq-api-key', (event, apiKey) => {
+  if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
+  if (typeof apiKey !== 'string') throw new Error('Invalid API key');
+  store.set('groqApiKey', apiKey);
   return true;
 });
 ipcMain.handle('log-error', (event, payload) => {
@@ -4623,7 +4932,12 @@ ipcMain.handle('settings-get-state', (event) => {
 });
 
 // Expose a small, safe IPC to let preload determine adblock mode without exposing full settings.
+// Restricted to trusted browser chrome and tab BrowserViews — untrusted webpages
+// cannot invoke this channel.
 ipcMain.handle('get-adblock-mode', (event) => {
+  if (!isTrustedIpcSender(event) && !isTabBrowserView(event)) {
+    throw new Error('Unauthorized IPC sender');
+  }
   try {
     const enabled = !!featureStore.isEnabled('adBlocker');
     const settings = featureStore.getFeatureSettings('adBlocker') || {};
@@ -4818,6 +5132,11 @@ app.whenReady().then(async () => {
   const sess = session.fromPartition('persist:browser');
   installTelemetryRequestBlocker(sess);
 
+  // Install deny-by-default permission handlers on the main browsing session.
+  // Must run before any windows are created so every tab inherits the policy.
+  // Replaces the blanket grant that tab-sleep previously installed.
+  setupSessionPermissionHandlers(sess);
+
   // Initialize the download manager — it routes every download to the
   // configured directory (system Downloads by default, or the user's chosen
   // folder persisted in the settings FeatureStore) and never shows a Save As
@@ -4854,35 +5173,41 @@ app.whenReady().then(async () => {
         },
         onBlocked: (payload) => {
           try {
-            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('adblock-event', payload);
+            sendAdblockEvent( payload);
             if (DIAG) console.info('[adblock] blocked', payload && payload.url, 'rule=', payload && payload.rule);
           } catch (e) { }
         }
       });
 
-      try {
-        await adblockerService.init(sess);
-      } catch (err) {
-        logError('adblock-init-failed', err);
-      }
+      // Defer adblocker initialization to after the window is shown so the
+      // UI appears immediately while filter lists download in the background.
+      // Tabs created before init completes won't have adblocking — that's
+      // acceptable for the first ~1-2s of startup.
+      (async () => {
+        try {
+          await adblockerService.init(sess);
+        } catch (err) {
+          logError('adblock-init-failed', err);
+        }
 
-      // Only create the runtime when cosmetic filters are in use (cosmetic or full)
-      try {
-        const usesCosmetic = (adMode === 'cosmetic' || adMode === 'standard' || adMode === 'full' || adMode === 'aggressive');
-        if (usesCosmetic) {
-          try { contentBlockingRuntime = new ContentBlockingRuntime(adblockerService); } catch (e) { contentBlockingRuntime = null; }
-        }
-        if (adMode === 'aggressive') {
-          try {
-            if (adblockerService && adblockerService.networkAttached) {
-              console.info('[adblock] STARTUP: native blocker ACTIVE for aggressive mode');
-            } else {
-              console.warn('[adblock] STARTUP: native blocker INACTIVE - enabling fallback blocker');
-              attachAggressiveFallbackToSession(sess);
-            }
-          } catch (e) { console.error('[adblock] aggressive initialization failed', e && e.stack ? e.stack : e); }
-        }
-      } catch (e) { contentBlockingRuntime = null; }
+        // Only create the runtime when cosmetic filters are in use (cosmetic or full)
+        try {
+          const usesCosmetic = (adMode === 'cosmetic' || adMode === 'standard' || adMode === 'full' || adMode === 'aggressive');
+          if (usesCosmetic) {
+            try { contentBlockingRuntime = new ContentBlockingRuntime(adblockerService); } catch (e) { contentBlockingRuntime = null; }
+          }
+          if (adMode === 'aggressive') {
+            try {
+              if (adblockerService && adblockerService.networkAttached) {
+                console.info('[adblock] STARTUP: native blocker ACTIVE for aggressive mode');
+              } else {
+                console.warn('[adblock] STARTUP: native blocker INACTIVE - enabling fallback blocker');
+                attachAggressiveFallbackToSession(sess);
+              }
+            } catch (e) { console.error('[adblock] aggressive initialization failed', e && e.stack ? e.stack : e); }
+          }
+        } catch (e) { contentBlockingRuntime = null; }
+      })();
     }
   } catch (e) {
     logError('adblock-init-check', e);
@@ -4894,7 +5219,12 @@ app.whenReady().then(async () => {
   });
 
   // Renderer can request the latest cosmetic CSS (preload uses this)
+  // Restricted to trusted browser chrome and tab BrowserViews — untrusted
+  // webpages must not be able to probe cosmetic filter rules.
   ipcMain.handle('get-cosmetic-css', (event) => {
+    if (!isTrustedIpcSender(event) && !isTabBrowserView(event)) {
+      throw new Error('Unauthorized IPC sender');
+    }
     try {
       return (adblockerService && adblockerService.css) || '';
     } catch (e) { return ''; }
@@ -5010,7 +5340,7 @@ app.whenReady().then(async () => {
       if (isSiteBlocked(target)) {
         try {
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('adblock-event', {
+            sendAdblockEvent( {
               url: target,
               blocked: true,
               rule: 'site-blocker',
@@ -5127,6 +5457,18 @@ app.whenReady().then(async () => {
     if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
     if (!downloadManager) return false;
     return downloadManager.openDownloadsFolder();
+  });
+
+  ipcMain.handle('downloads-retry', (event, id) => {
+    if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager || !Number.isInteger(id)) return false;
+    return downloadManager.retry(id);
+  });
+
+  ipcMain.handle('downloads-remove', (event, id) => {
+    if (!_isDownloadsTrusted(event)) throw new Error('Unauthorized IPC sender');
+    if (!downloadManager || !Number.isInteger(id)) return false;
+    return downloadManager.removeDownload(id);
   });
 
   // ── DOWNLOAD LOCATION IPC (trusted windows + internal settings/downloads pages) ──
@@ -5568,6 +5910,8 @@ app.whenReady().then(async () => {
       reconfigureAdblocker,
       logError,
       getAppIcon,
+      sensitiveStoreKeys: SENSITIVE_STORE_KEYS,
+      isSiteBlocked,
     });
   } catch (e) {
     logError('incognito-register-failed', e);
@@ -5591,6 +5935,8 @@ app.whenReady().then(async () => {
       getQuickAccessService: () => quickAccessService,
       getDownloadManager: () => downloadManager,
       getUpdaterState,
+      sensitiveStoreKeys: SENSITIVE_STORE_KEYS,
+      isSiteBlocked,
     });
     registerNewWindowIpc();
   } catch (e) {

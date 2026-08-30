@@ -622,13 +622,25 @@
         return d.innerHTML;
       }
 
+      // Favicon URL sanitizer: validates protocol and escapes HTML-special chars.
+      var _SAFE_FAV_PROTOS = new Set(['http:', 'https:', 'data:']);
+      function sanitizeFaviconUrl(url) {
+        if (typeof url !== 'string' || !url) return '';
+        try {
+          var p = new URL(url);
+          if (!_SAFE_FAV_PROTOS.has(p.protocol)) return '';
+          if (p.protocol === 'data:' && !url.toLowerCase().startsWith('data:image/')) return '';
+        } catch { return ''; }
+        return url.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+
       function buildDial(item) {
         const url = (item && item.url) || '';
         const title = (item && (item.title || item.url)) || '';
         const faviconUrl = (item && typeof item.favicon === 'string') ? item.favicon : '';
         const display = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
         const img = faviconUrl
-          ? '<img src="' + faviconUrl.replace(/"/g, '&quot;') + '" alt="" loading="lazy" />'
+          ? '<img src="' + sanitizeFaviconUrl(faviconUrl) + '" alt="" loading="lazy" />'
           : '';
         return '<a class="dial" href="' + url.replace(/"/g, '&quot;') + '">'
           + '<div class="dial-favicon">' + img + '</div>'

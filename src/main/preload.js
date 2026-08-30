@@ -143,6 +143,7 @@ const SEND_CHANNELS = new Set([
   'focus-page',
   'bookmarks-context-menu',
   'updater-install',
+  'custom-sites-updated',
 ]);
 
 const INVOKE_CHANNELS = new Set([
@@ -157,7 +158,6 @@ const INVOKE_CHANNELS = new Set([
   'settings-export',
   'settings-import',
   'restart-app',
-  'get-cosmetic-css',
   'history-get',
   'history-search',
   'history-autocomplete',
@@ -180,6 +180,8 @@ const INVOKE_CHANNELS = new Set([
   'downloads-open',
   'downloads-show-in-folder',
   'downloads-open-folder',
+  'downloads-retry',
+  'downloads-remove',
   'downloads-get-location',
   'downloads-set-location',
   'downloads-reset-location',
@@ -187,7 +189,8 @@ const INVOKE_CHANNELS = new Set([
   'updater-get-state',
   'updater-check',
   'custom-sites-toggle',
-  'custom-sites-check',
+  'get-groq-api-key',
+  'set-groq-api-key',
 ]);
 const RECEIVE_CHANNELS = new Set([
   'url-changed',
@@ -220,7 +223,6 @@ const RECEIVE_CHANNELS = new Set([
   'updater-state-changed',
   'custom-sites-updated',
   'custom-sites-toggle-request',
-  'custom-sites-check-request',
 ]);
 
 // Minimal, safe scriptlets executed at document_start to help neutralize
@@ -380,7 +382,6 @@ const api = {
   onBlocked: (cb) => on('blocked', cb),
   onAdblockEvent: (cb) => on('adblock-event', cb),
   onAdblockCssUpdated: (cb) => on('adblock-css-updated', cb),
-  requestCosmeticCSS: () => invoke('get-cosmetic-css'),
   onCosmeticCSSUpdate: (cb) => on('adblock-css-updated', cb),
   onTabsState: (cb) => on('tabs-state', cb),
   onNavigationInvalid: (cb) => on('navigation-invalid', cb),
@@ -445,6 +446,8 @@ const api = {
   openDownload: (id) => invoke('downloads-open', id),
   showDownloadInFolder: (id) => invoke('downloads-show-in-folder', id),
   openDownloadsFolder: () => invoke('downloads-open-folder'),
+  retryDownload: (id) => invoke('downloads-retry', id),
+  removeDownload: (id) => invoke('downloads-remove', id),
   onDownloadsUpdated: (cb) => on('downloads-updated', cb),
 
   // ── Downloads location (settings-managed, main-process filesystem) ──
@@ -521,11 +524,13 @@ const api = {
   // Toggle a page in/out of Custom Sites from the overlay star popup.
   // Returns true if added, false if removed.
   toggleCustomSite: (url, name, favicon) => invoke('custom-sites-toggle', url, name, favicon),
-  isCustomSite: (url) => invoke('custom-sites-check', url),
   notifyCustomSitesUpdated: () => send('custom-sites-updated'),
   onCustomSitesUpdated: (cb) => on('custom-sites-updated', cb),
   onCustomSitesToggleRequest: (cb) => on('custom-sites-toggle-request', cb),
-  onCustomSitesCheckRequest: (cb) => on('custom-sites-check-request', cb),
+
+  // ── Groq API Key (purpose-specific, replaces generic storeGet/storeSet) ──
+  getGroqApiKey: () => invoke('get-groq-api-key'),
+  setGroqApiKey: (apiKey) => invoke('set-groq-api-key', apiKey),
 };
 
 contextBridge.exposeInMainWorld('kairon', Object.freeze(api));

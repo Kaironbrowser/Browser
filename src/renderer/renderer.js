@@ -34,7 +34,6 @@ try {
 } catch (e) {}
 
 // ── INIT ─────────────────────────────────────────────────────
-console.info('[renderer] init');
 const tabStore = createTabStateStore();
 const ui       = createUiController(kairon, tabStore, publishLayoutMetricsNow);
 const ai       = initAiPanel(kairon);

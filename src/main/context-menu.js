@@ -189,7 +189,7 @@ function selectedTextMenu(context, tab, actions) {
  *
  * @param {ReturnType<typeof detectContext>} context
  * @param {object} tab – The active tab
- * @param {{ onOpenInNewTab?: (url: string) => void, onOpenInNewWindow?: (url: string) => void }} actions
+ * @param {{ onOpenInCurrentTab?: (url: string) => void, onOpenInNewTab?: (url: string) => void, onOpenInNewWindow?: (url: string) => void }} actions
  * @returns {MenuItem[]}
  */
 function linkMenu(context, tab, actions) {
@@ -198,14 +198,15 @@ function linkMenu(context, tab, actions) {
   }
 
   const url = context.linkURL;
-  const webContents = tab.view.webContents;
 
   return [
     new MenuItem({
       label: 'Open Link',
       click: () => {
         try {
-          webContents.loadURL(url);
+          if (actions && typeof actions.onOpenInCurrentTab === 'function') {
+            actions.onOpenInCurrentTab(url);
+          }
         } catch (err) {
           console.error('[context-menu] open link failed:', err);
         }
@@ -317,7 +318,7 @@ function imageMenu(context, tab, actions) {
  *
  * @param {ReturnType<typeof detectContext>} context
  * @param {object} tab – The active tab containing `view` (BrowserView)
- * @param {{ onSearch?: (query: string) => void, onOpenInNewTab?: (url: string) => void, onOpenInNewWindow?: (url: string) => void, onSaveImageAs?: (url: string) => void }} [actions] – Optional callbacks
+ * @param {{ onSearch?: (query: string) => void, onOpenInCurrentTab?: (url: string) => void, onOpenInNewTab?: (url: string) => void, onOpenInNewWindow?: (url: string) => void, onSaveImageAs?: (url: string) => void }} [actions] – Optional callbacks
  * @returns {Menu}
  */
 function buildMenu(context, tab, actions) {
@@ -449,7 +450,7 @@ function showMenu(menu) {
  * main process integration (e.g. `onSearch` to open a search tab).
  *
  * @param {object} tab – The tab object created by createTab()
- * @param {{ onSearch?: (query: string) => void, onOpenInNewTab?: (url: string) => void, onOpenInNewWindow?: (url: string) => void, onSaveImageAs?: (url: string) => void }} [actions] – Optional callbacks
+ * @param {{ onSearch?: (query: string) => void, onOpenInCurrentTab?: (url: string) => void, onOpenInNewTab?: (url: string) => void, onOpenInNewWindow?: (url: string) => void, onSaveImageAs?: (url: string) => void }} [actions] – Optional callbacks
  */
 function setupContextMenu(tab, actions) {
   if (!tab || !tab.view || !tab.view.webContents) {

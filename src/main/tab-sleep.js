@@ -12,10 +12,6 @@ const CHECK_INTERVAL_MS = 30 * 1000;      // lightweight sweep every 30s
 const DEFAULT_FRAME_RATE = 60;
 const SLEEP_FRAME_RATE = 1;
 
-// Permission strings reported by session.setPermissionRequestHandler that
-// indicate ongoing camera / microphone / screen capture.
-const CAPTURE_PERMISSIONS = new Set(['media', 'display-capture', 'screen', 'screen-capture']);
-
 class TabSleepManager {
   constructor({ getTabs, getActiveTabId, onStateChange } = {}) {
     this._getTabs = typeof getTabs === 'function' ? getTabs : () => new Map();
@@ -162,9 +158,9 @@ class TabSleepManager {
 
   // ── EVENT OBSERVERS ─────────────────────────────────────────
 
-  // Session-wide observers for downloads and capture permissions. The app sets
-  // no permission handler today, so installing one that always grants preserves
-  // Electron's default allow-all behavior while letting us observe captures.
+  // Session-wide observer for downloads. Permission handling is now managed
+  // centrally in main.js and incognito.js with a deny-by-default policy,
+  // so this module no longer installs any permission handler.
   _attachSessionListeners() {
     if (this._sessionAttached) return;
     this._sessionAttached = true;
@@ -178,9 +174,6 @@ class TabSleepManager {
 
       if (typeof sess.on === 'function') {
         sess.on('will-download', this._onWillDownload);
-      }
-      if (typeof sess.setPermissionRequestHandler === 'function') {
-        sess.setPermissionRequestHandler(this._onPermissionRequest);
       }
     } catch (e) { }
   }
@@ -231,14 +224,18 @@ class TabSleepManager {
     } catch (e) { }
   };
 
-  _onPermissionRequest = (webContents, permission, callback) => {
-    if (webContents && CAPTURE_PERMISSIONS.has(permission)) {
-      this._capturing.add(webContents);
-    }
-    if (typeof callback === 'function') {
-      try { callback(true); } catch (e) { }
-    }
-  };
+  // Called by main.js's permission request handler when a capture permission
+  // (camera, microphone, screen capture) is requested or granted, so the
+  // tab-sleep manager knows not to sleep the tab.
+  onCapturePermissionGranted(webContents) {
+    if (webContents) this._capturing.add(webContents);
+  }
+
+  // Called by main.js's permission request handler when a capture permission
+  // is denied, so the tab-sleep manager can stop tracking the capture.
+  onCapturePermissionDenied(webContents) {
+    if (webContents) this._capturing.delete(webContents);
+  }
 }
 
 module.exports = { TabSleepManager, SLEEP_THRESHOLD_MS, CHECK_INTERVAL_MS };

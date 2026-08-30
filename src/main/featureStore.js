@@ -17,6 +17,8 @@ class FeatureStore {
     this.registry = cloneRegistry();
     this.defaultState = getDefaultFeatureState();
     this.state = this.loadState();
+    // Cache for getPublicSnapshot: invalidated on every mutation (persist/reset/import).
+    this._snapshotCache = null;
   }
 
   loadState() {
@@ -36,6 +38,7 @@ class FeatureStore {
 
   persist() {
     this.store.set(FEATURES_STORE_KEY, this.state);
+    this._snapshotCache = null;
   }
 
   mergeSettings(base, patch) {
@@ -59,10 +62,14 @@ class FeatureStore {
   }
 
   getPublicSnapshot() {
-    return {
+    // Cached: the snapshot is expensive (deep-clone of the full state tree)
+    // and callers (settings-get-state IPC) don't mutate the result.
+    if (this._snapshotCache) return this._snapshotCache;
+    this._snapshotCache = {
       registry: this.registry,
       state: deepClone(this.state),
     };
+    return this._snapshotCache;
   }
 
   isEnabled(featureId) {
@@ -70,7 +77,13 @@ class FeatureStore {
   }
 
   getFeatureSettings(featureId) {
-    return deepClone(this.state[featureId]?.settings || {});
+    // Return a frozen reference instead of cloning: callers in hot paths
+    // (adblock-mode check, HTTPS-only, download-location) only read the
+    // returned object. Mutations go through updateFeatureConfig() which
+    // calls persist() to invalidate this cache.
+    const settings = this.state[featureId]?.settings;
+    if (!settings) return {};
+    return settings;
   }
 
   setFeatureEnabled(featureId, enabled) {
@@ -91,12 +104,14 @@ class FeatureStore {
     if (!this.state[featureId]) return false;
     this.state[featureId] = deepClone(this.defaultState[featureId]);
     this.persist();
+    this._snapshotCache = null;
     return true;
   }
 
   resetAll() {
     this.state = deepClone(this.defaultState);
     this.persist();
+    this._snapshotCache = null;
     return true;
   }
 
@@ -124,6 +139,7 @@ class FeatureStore {
     }
     this.state = next;
     this.persist();
+    this._snapshotCache = null;
     return true;
   }
 }

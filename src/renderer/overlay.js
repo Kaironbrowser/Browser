@@ -70,11 +70,17 @@ function renderSuggestions({ items, rect, selectedIndex = -1, richItems }) {
       // Search rows carry a secondary text color that follows the global theme.
       btn.classList.add('address-suggestion-search');
       iconElement = `<img src="https://brave.com/favicon.ico" width="16" height="16" style="flex-shrink:0">`;
+      btn.innerHTML = `
+        <span>
+          ${iconElement}
+          <span style="text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${sanitizeText(displayText)}</span>
+        </span>`;
     } else if (rich && rich.title && rich.title !== 'Untitled') {
       // History entry with a meaningful title: show title + URL in a two-line layout.
       const faviconUrl = rich.favicon || '';
-      iconElement = faviconUrl
-        ? `<img src="${sanitizeText(faviconUrl)}" width="14" height="14" style="flex-shrink:0" onerror="this.outerHTML='<svg width=&quot;11&quot; height=&quot;11&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;flex-shrink:0;opacity:var(--sugg-icon-opacity)&quot;><circle cx=&quot;6&quot; cy=&quot;6&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/><path d=&quot;M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/></svg>'">` 
+      const safeFaviconUrl = sanitizeFaviconUrl(faviconUrl);
+      iconElement = safeFaviconUrl
+        ? `<img src="${safeFaviconUrl}" width="14" height="14" style="flex-shrink:0" onerror="this.outerHTML='<svg width=&quot;11&quot; height=&quot;11&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;flex-shrink:0;opacity:var(--sugg-icon-opacity)&quot;><circle cx=&quot;6&quot; cy=&quot;6&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/><path d=&quot;M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/></svg>'">` 
         : `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;opacity:var(--sugg-icon-opacity)"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10" stroke="currentColor" stroke-width="1.2"/></svg>`;
       btn.innerHTML = `
         <span class="sugg-icon-col">${iconElement}</span>
@@ -85,7 +91,10 @@ function renderSuggestions({ items, rect, selectedIndex = -1, richItems }) {
     } else {
       // Plain history entry or unknown: show URL only with globe icon.
       if (rich && rich.favicon) {
-        iconElement = `<img src="${sanitizeText(rich.favicon)}" width="14" height="14" style="flex-shrink:0" onerror="this.outerHTML='<svg width=&quot;11&quot; height=&quot;11&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;flex-shrink:0;opacity:var(--sugg-icon-opacity)&quot;><circle cx=&quot;6&quot; cy=&quot;6&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/><path d=&quot;M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/></svg>'">`;
+        const safeFaviconUrl2 = sanitizeFaviconUrl(rich.favicon);
+        iconElement = safeFaviconUrl2
+          ? `<img src="${safeFaviconUrl2}" width="14" height="14" style="flex-shrink:0" onerror="this.outerHTML='<svg width=&quot;11&quot; height=&quot;11&quot; viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; style=&quot;flex-shrink:0;opacity:var(--sugg-icon-opacity)&quot;><circle cx=&quot;6&quot; cy=&quot;6&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/><path d=&quot;M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/></svg>'">`
+          : `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;opacity:var(--sugg-icon-opacity)"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10" stroke="currentColor" stroke-width="1.2"/></svg>`;
       } else {
         iconElement = `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;opacity:var(--sugg-icon-opacity)"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M1 6h10M6 1C4.5 3 4.5 9 6 11M6 1c1.5 2 1.5 8 0 10" stroke="currentColor" stroke-width="1.2"/></svg>`;
       }
@@ -113,6 +122,29 @@ function sanitizeText(str) {
   const d = document.createElement('div');
   d.textContent = str;
   return d.innerHTML;
+}
+
+// ── FAVICON URL SANITIZER (K-SEC-003) ───────────────────────
+// Validates favicon URLs for safe use in img src attributes.
+// Only allows http:, https:, and data: protocols.
+// Rejects javascript:, vbscript:, file:, blob:, and other dangerous schemes.
+// Returns empty string for any invalid/malicious URL.
+const ALLOWED_FAVICON_PROTOCOLS = new Set(['http:', 'https:', 'data:']);
+function sanitizeFaviconUrl(url) {
+  if (typeof url !== 'string' || !url) return '';
+  try {
+    const parsed = new URL(url);
+    if (!ALLOWED_FAVICON_PROTOCOLS.has(parsed.protocol)) return '';
+    // Only allow data: URLs that represent images (favicons are always images)
+    if (parsed.protocol === 'data:') {
+      const lower = url.toLowerCase();
+      if (!lower.startsWith('data:image/')) return '';
+    }
+  } catch {
+    return '';
+  }
+  // HTML-attribute safe: escape quotes, angle brackets, and other special chars
+  return url.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 window.kairon.on('overlay-suggestions', (payload) => {
@@ -173,6 +205,8 @@ const DL_ICONS = {
 const ICON_PAUSE = `<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M3.2 1.8v7.4M7.8 1.8v7.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
 const ICON_RESUME = `<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M3 1.8l6 3.7-6 3.7z" fill="currentColor"/></svg>`;
 const ICON_CANCEL = `<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 2l7 7M9 2L2 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+const ICON_RETRY = `<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M9 5.5A3.5 3.5 0 1 1 5.5 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M9 2v3.5H5.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ICON_REMOVE = `<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 3h7M4.5 3V2h2v1M2.5 3l.5 6.5h5l.5-6.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const ICON_FOLDER = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1.5 2.5h3l1 1.2h5v5.8h-9z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>`;
 
 function dlFileKind(d) {
@@ -303,6 +337,12 @@ function buildDownloadRow(d) {
   } else if (d.state === 'paused' || d.state === 'interrupted') {
     actions.appendChild(makeIconBtn(ICON_RESUME, 'Resume download', () => window.kairon.resumeDownload(d.id)));
     actions.appendChild(makeIconBtn(ICON_CANCEL, 'Cancel download', () => window.kairon.cancelDownload(d.id)));
+  } else if (d.state === 'failed') {
+    actions.appendChild(makeIconBtn(ICON_RETRY, 'Retry download', () => window.kairon.retryDownload(d.id)));
+    actions.appendChild(makeIconBtn(ICON_REMOVE, 'Remove from list', () => window.kairon.removeDownload(d.id)));
+  } else if (d.state === 'completed') {
+    actions.appendChild(makeIconBtn(ICON_FOLDER, 'Show in folder', () => window.kairon.showDownloadInFolder(d.id)));
+    actions.appendChild(makeIconBtn(ICON_REMOVE, 'Remove from list', () => window.kairon.removeDownload(d.id)));
   } else if (d.savePath) {
     actions.appendChild(makeIconBtn(ICON_FOLDER, 'Show in folder', () => window.kairon.showDownloadInFolder(d.id)));
   }
@@ -353,6 +393,12 @@ function updateDownloadRow(refs, d) {
     } else if (d.state === 'paused' || d.state === 'interrupted') {
       refs.actions.appendChild(makeIconBtn(ICON_RESUME, 'Resume download', () => window.kairon.resumeDownload(d.id)));
       refs.actions.appendChild(makeIconBtn(ICON_CANCEL, 'Cancel download', () => window.kairon.cancelDownload(d.id)));
+    } else if (d.state === 'failed') {
+      refs.actions.appendChild(makeIconBtn(ICON_RETRY, 'Retry download', () => window.kairon.retryDownload(d.id)));
+      refs.actions.appendChild(makeIconBtn(ICON_REMOVE, 'Remove from list', () => window.kairon.removeDownload(d.id)));
+    } else if (d.state === 'completed') {
+      refs.actions.appendChild(makeIconBtn(ICON_FOLDER, 'Show in folder', () => window.kairon.showDownloadInFolder(d.id)));
+      refs.actions.appendChild(makeIconBtn(ICON_REMOVE, 'Remove from list', () => window.kairon.removeDownload(d.id)));
     } else if (d.savePath) {
       refs.actions.appendChild(makeIconBtn(ICON_FOLDER, 'Show in folder', () => window.kairon.showDownloadInFolder(d.id)));
     }

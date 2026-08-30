@@ -104,6 +104,27 @@ function registerIncognitoBrowser(deps) {
   }
 }
 
+// ── SITE BLOCKING HELPER ─────────────────────────────────────
+// Mirrors main.js's adblock-event feedback so blocked navigations
+// in incognito tabs produce the same UI feedback.
+function sendIncognitoSiteBlockedFeedback(url) {
+  try {
+    if (incognitoWindow && !incognitoWindow.isDestroyed()) {
+      incognitoWindow.webContents.send('incognito-adblock-event', {
+        url,
+        blocked: true,
+        rule: 'site-blocker',
+        resourceType: 'navigation',
+        domain: (() => { try { return new URL(url).hostname; } catch { return null; } })(),
+      });
+    }
+  } catch (e) { }
+}
+
+function isIncognitoSiteBlocked(url) {
+  try { return typeof services.isSiteBlocked === 'function' && services.isSiteBlocked(url); } catch { return false; }
+}
+
 // ── TRUST HELPERS (used by main.js's sender-trust model) ────
 
 function isIncognitoChromeWebContents(wc) {
@@ -126,6 +147,79 @@ function getIncognitoWindow() {
   return incognitoWindow;
 }
 
+// ── PERMISSION POLICY (incognito) ───────────────────────────
+// Mirrors the deny-by-default policy from main.js. Permissions are session-
+// scoped, so incognito grants are never persisted or shared with normal
+// browsing. Every incognito session (new window = new session) starts fresh.
+
+const INC_PERMISSION_ALLOW_ALWAYS = new Set([
+  'clipboard-read',
+  'clipboard-sanitized-write',
+  'clipboard-write',
+  'fullscreen',
+]);
+
+const INC_PERMISSION_DENY_ALWAYS = new Set([
+  'camera',
+  'microphone',
+  'geolocation',
+  'notifications',
+  'display-capture',
+  'screen',
+  'screen-capture',
+  'midi',
+  'midi-sysex',
+  'sensor',
+  'idle-detection',
+  'serial',
+  'usb',
+  'hid',
+]);
+
+/**
+ * Install deny-by-default permission handlers on an incognito session.
+ * Called once per incognito window creation (new session each time).
+ * Trust model: incognito chrome/overlay are trusted; web content in tabs
+ * is not. Same policy as the main browsing session.
+ */
+function setupIncognitoPermissionHandlers(sess) {
+  if (!sess) return;
+  try {
+    sess.setPermissionRequestHandler((webContents, permission, callback) => {
+      try {
+        if (INC_PERMISSION_ALLOW_ALWAYS.has(permission)) {
+          return callback(true);
+        }
+        if (INC_PERMISSION_DENY_ALWAYS.has(permission)) {
+          return callback(false);
+        }
+        // Grant only to trusted incognito chrome/overlay
+        const trusted =
+          isIncognitoChromeWebContents(webContents) ||
+          isIncognitoOverlayWebContents(webContents);
+        callback(!!trusted);
+      } catch (e) {
+        try { callback(false); } catch (e2) { }
+      }
+    });
+
+    sess.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+      try {
+        if (INC_PERMISSION_ALLOW_ALWAYS.has(permission)) return true;
+        if (INC_PERMISSION_DENY_ALWAYS.has(permission)) return false;
+        const trusted =
+          isIncognitoChromeWebContents(webContents) ||
+          isIncognitoOverlayWebContents(webContents);
+        return !!trusted;
+      } catch (e) {
+        return false;
+      }
+    });
+  } catch (e) {
+    try { services.logError('incognito-permission-handler-setup', e); } catch (e2) { }
+  }
+}
+
 // ── WINDOW LIFECYCLE ─────────────────────────────────────────
 
 function openIncognitoWindow() {
@@ -144,6 +238,11 @@ function openIncognitoWindow() {
   try { incognitoSession.clearStorageData().catch(() => { }); } catch (e) { }
   try { incognitoSession.clearCache().catch(() => { }); } catch (e) { }
 
+  // Install deny-by-default permission handlers on the incognito session.
+  // Permissions are session-scoped, so incognito grants are never persisted
+  // to or shared with the normal browsing session.
+  setupIncognitoPermissionHandlers(incognitoSession);
+
   incognitoWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -159,6 +258,7 @@ function openIncognitoWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: false,
+      sandbox: true,
     },
   });
 
@@ -488,8 +588,9 @@ function createIncognitoTab(initialTarget = null) {
     try {
       const parsed = new URL(url);
       const allowed = ALLOWED_PROTOCOLS.has(parsed.protocol) || parsed.protocol === 'about:';
-      if (!allowed) {
+      if (!allowed || isIncognitoSiteBlocked(url)) {
         event.preventDefault();
+        if (isIncognitoSiteBlocked(url)) sendIncognitoSiteBlockedFeedback(url);
         return;
       }
     } catch (e) {
@@ -499,6 +600,15 @@ function createIncognitoTab(initialTarget = null) {
     // A real navigation out of an internal page drops the internal-home flag
     // so did-navigate records the actual URL (mirrors the normal browser).
     tab.isInternalHome = false;
+  };
+  const onWillRedirect = (event, url, isInPlace, isMainFrame) => {
+    if (!isMainFrame) return;
+    // Site-blocker enforcement: prevent redirects to blocked domains.
+    if (isIncognitoSiteBlocked(url)) {
+      event.preventDefault();
+      sendIncognitoSiteBlockedFeedback(url);
+      return;
+    }
   };
   const onBeforeInputEvent = (event, input) => {
     if (input.type !== 'keyDown') return;
@@ -550,7 +660,10 @@ function createIncognitoTab(initialTarget = null) {
 
   wc.setWindowOpenHandler(({ url }) => {
     const target = normalizeTarget(url);
-    if (!target) return { action: 'deny' };
+    if (!target || isIncognitoSiteBlocked(target)) {
+      if (isIncognitoSiteBlocked(target)) sendIncognitoSiteBlockedFeedback(target);
+      return { action: 'deny' };
+    }
     const newId = createIncognitoTab(target);
     switchIncognitoTab(newId);
     return { action: 'deny' };
@@ -564,6 +677,7 @@ function createIncognitoTab(initialTarget = null) {
     ['did-stop-loading', onDidStopLoading],
     ['did-fail-load', onDidFailLoad],
     ['will-navigate', onWillNavigate],
+    ['will-redirect', onWillRedirect],
     ['before-input-event', onBeforeInputEvent],
   ];
   for (const [eventName, listener] of listenerPairs) {
@@ -583,7 +697,11 @@ function createIncognitoTab(initialTarget = null) {
   } else if (initialTarget === INC_SETTINGS_URL || initialTarget.startsWith(INC_SETTINGS_URL + '/') || initialTarget === INC_DOWNLOADS_URL) {
     navigateIncognitoTab(tab, initialTarget);
   } else {
-    try { tab.view.webContents.loadURL(initialTarget).catch((err) => services.logError(`incognito-tab-${id}-load`, err)); } catch (e) { }
+    if (isIncognitoSiteBlocked(initialTarget)) {
+      sendIncognitoSiteBlockedFeedback(initialTarget);
+    } else {
+      try { tab.view.webContents.loadURL(initialTarget).catch((err) => services.logError(`incognito-tab-${id}-load`, err)); } catch (e) { }
+    }
   }
 
   return id;
@@ -763,6 +881,10 @@ function navigateIncognitoTab(tab, target) {
     try {
       if (incognitoWindow && !incognitoWindow.isDestroyed()) incognitoWindow.webContents.send('incognito-navigation-invalid');
     } catch (e) { }
+    return;
+  }
+  if (isIncognitoSiteBlocked(normalized)) {
+    sendIncognitoSiteBlockedFeedback(normalized);
     return;
   }
   tab.isInternalHome = false;
@@ -1139,10 +1261,13 @@ function registerIpc() {
     const tab = incognitoTabs.get(incognitoActiveTabId);
     if (!tab) return;
     const target = normalizeTarget(url);
-    if (!target) {
-      try {
-        if (incognitoWindow && !incognitoWindow.isDestroyed()) incognitoWindow.webContents.send('incognito-navigation-invalid');
-      } catch (e) { }
+    if (!target || isIncognitoSiteBlocked(target)) {
+      if (isIncognitoSiteBlocked(target)) sendIncognitoSiteBlockedFeedback(target);
+      else {
+        try {
+          if (incognitoWindow && !incognitoWindow.isDestroyed()) incognitoWindow.webContents.send('incognito-navigation-invalid');
+        } catch (e) { }
+      }
       return;
     }
     if (incognitoOverlay && !incognitoOverlay.isDestroyed()) {
@@ -1182,13 +1307,34 @@ function registerIpc() {
   });
 
   // ── INVOKE: shared store (AI API key etc.) ──────────────────
+  // Sensitive keys (e.g. groqApiKey) are blocked from generic access.
   handle('incognito-store-get', (event, key) => {
     if (typeof key !== 'string' || !key || key.length > 256) throw new Error('Invalid store key');
+    if (services.sensitiveStoreKeys && services.sensitiveStoreKeys.has(key)) {
+      throw new Error('Access denied: sensitive store key');
+    }
     return services.store ? services.store.get(key) : undefined;
   });
   handle('incognito-store-set', (event, key, value) => {
     if (typeof key !== 'string' || !key || key.length > 256) throw new Error('Invalid store key');
+    if (services.sensitiveStoreKeys && services.sensitiveStoreKeys.has(key)) {
+      throw new Error('Access denied: sensitive store key');
+    }
     if (services.store) services.store.set(key, value);
+    return true;
+  });
+
+  // ── INVOKE: purpose-specific Groq API key ──────────────────
+  handle('incognito-get-groq-api-key', (event) => {
+    try {
+      return services.store ? (services.store.get('groqApiKey') || '') : '';
+    } catch (e) {
+      return '';
+    }
+  });
+  handle('incognito-set-groq-api-key', (event, apiKey) => {
+    if (typeof apiKey !== 'string') throw new Error('Invalid API key');
+    if (services.store) services.store.set('groqApiKey', apiKey);
     return true;
   });
 
@@ -1260,5 +1406,6 @@ module.exports = {
   broadcastSettingsToIncognito,
   isIncognitoChromeWebContents,
   isIncognitoTabWebContents,
+  isIncognitoOverlayWebContents,
   getIncognitoWindow,
 };

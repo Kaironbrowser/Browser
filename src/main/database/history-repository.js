@@ -116,12 +116,15 @@ class HistoryRepository {
     const db = this._dbManager.getDb();
     const safeLimit = Math.max(1, Math.min(10000, Number(limit) || 50));
     const safeOffset = Math.max(0, Number(offset) || 0);
-    const pattern = `%${query.trim().toLowerCase()}%`;
+    const pattern = `%${query.trim()}%`;
 
+    // SQLite LIKE is case-insensitive for ASCII by default; COLLATE NOCASE
+    // avoids the per-row LOWER() function call and lets the engine use the
+    // index more efficiently.
     return db.prepare(`
       SELECT id, url, title, favicon, lastVisited, visitCount
       FROM history
-      WHERE LOWER(title) LIKE ? OR LOWER(url) LIKE ?
+      WHERE title LIKE ? COLLATE NOCASE OR url LIKE ? COLLATE NOCASE
       ORDER BY lastVisited DESC
       LIMIT ? OFFSET ?
     `).all(pattern, pattern, safeLimit, safeOffset);
@@ -170,58 +173,86 @@ class HistoryRepository {
     const safeLimit = Math.max(1, Math.min(15, Number(limit) || 8));
     const q = query.trim().toLowerCase();
 
-    // Fetch all candidates that match (broad filter), then score in JS for
-    // flexible prefix matching (strip protocol, www, etc.).
+    // Use a two-tier query: first fetch high-recency rows (last 7 days),
+    // then fall back to the full table only if we don't have enough
+    // candidates. This avoids scanning the full history table for the
+    // common case where recent history covers the query.
     const pattern = `%${q}%`;
-    const rows = db.prepare(`
+    const weekAgo = Date.now() - 604800000;
+    let rows = db.prepare(`
       SELECT url, title, favicon, visitCount, lastVisited
       FROM history
-      WHERE LOWER(url) LIKE ? OR LOWER(title) LIKE ?
+      WHERE (url LIKE ? COLLATE NOCASE OR title LIKE ? COLLATE NOCASE)
+        AND lastVisited >= ?
       ORDER BY lastVisited DESC
-      LIMIT 200
-    `).all(pattern, pattern);
+      LIMIT 80
+    `).all(pattern, pattern, weekAgo);
+
+    // If fewer than 20 results from recent history, supplement with older
+    // entries (up to 80 total) so short queries still find distant matches.
+    if (rows.length < 20) {
+      const older = db.prepare(`
+        SELECT url, title, favicon, visitCount, lastVisited
+        FROM history
+        WHERE (url LIKE ? COLLATE NOCASE OR title LIKE ? COLLATE NOCASE)
+          AND lastVisited < ?
+        ORDER BY lastVisited DESC
+        LIMIT 80
+      `).all(pattern, pattern, weekAgo);
+      rows = rows.concat(older);
+    }
 
     if (!rows.length) return [];
-
-    function stripProtocolAndWww(url) {
-      return url.replace(/^https?:\/\/(www\.)?/i, '');
-    }
 
     // Score each row. Higher = better.
     const scored = [];
     const seen = new Set();
-    for (const row of rows) {
-      const normalised = stripProtocolAndWww(row.url).toLowerCase();
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const urlLower = row.url.toLowerCase();
       const titleLower = (row.title || '').toLowerCase();
       let score = 0;
 
-      if (normalised.startsWith(q)) score = 1000;
+      // Strip protocol+www only when needed for scoring (avoids allocation
+      // for rows that won't match at all).
+      const hasUrlMatch = urlLower.includes(q);
+      const hasTitleMatch = titleLower.includes(q);
+      if (!hasUrlMatch && !hasTitleMatch) continue;
+
+      // Optimised prefix detection: check if q matches after stripping
+      // the https:// and www. prefix in one pass.
+      let strippedUrl = urlLower;
+      if (strippedUrl.startsWith('https://')) strippedUrl = strippedUrl.slice(8);
+      else if (strippedUrl.startsWith('http://')) strippedUrl = strippedUrl.slice(7);
+      if (strippedUrl.startsWith('www.')) strippedUrl = strippedUrl.slice(4);
+
+      if (strippedUrl.startsWith(q)) score = 1000;
       else if (titleLower.startsWith(q)) score = 800;
-      else if (normalised.includes(q)) score = 400;
-      else if (titleLower.includes(q)) score = 200;
+      else if (hasUrlMatch) score = 400;
+      else if (hasTitleMatch) score = 200;
       else continue;
 
-      // Frequency boost (log-ish scale so 1000 visits doesn't dominate).
+      // Frequency boost (log-ish scale).
       score += Math.min(200, Math.log2((row.visitCount || 1) + 1) * 20);
-      // Recency boost: entries visited within the last day get a large bonus.
+      // Recency boost.
       const age = Date.now() - (row.lastVisited || 0);
       if (age < 86400000) score += 150;          // < 1 day
       else if (age < 604800000) score += 80;     // < 1 week
       else if (age < 2592000000) score += 30;    // < 1 month
 
-      // Prefer shorter URLs (domain-only beats long path URLs).
-      score -= Math.min(100, normalised.length * 0.3);
+      // Prefer shorter URLs.
+      score -= Math.min(100, strippedUrl.length * 0.3);
 
       // Deduplicate by normalised URL.
-      const dedupKey = normalised.replace(/\/$/, '');
+      const dedupKey = strippedUrl.replace(/\/$/, '');
       if (seen.has(dedupKey)) continue;
       seen.add(dedupKey);
 
-      scored.push({ ...row, score });
+      scored.push({ id: row.id, url: row.url, title: row.title, favicon: row.favicon, visitCount: row.visitCount, lastVisited: row.lastVisited, score });
     }
 
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, safeLimit).map(({ score, ...rest }) => rest);
+    return scored.slice(0, safeLimit);
   }
 
   /**
