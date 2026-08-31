@@ -1190,6 +1190,13 @@ function registerNewWindowIpc() {
     navigateNewWindowTab(state, tab, target);
   });
 
+  // ── OVERLAY SUGGESTION HOVER ──────────────────────────────────
+  onChannel('nw-overlay-suggestion-hover', (state, event, index) => {
+    if (state.win && !state.win.isDestroyed()) {
+      state.win.webContents.send('overlay-suggestion-hover', index);
+    }
+  });
+
   // Downloads panel
   onChannel('nw-show-downloads-panel', (state, event, payload) => {
     if (!state.overlay || state.overlay.isDestroyed()) return;
@@ -1445,6 +1452,29 @@ function registerNewWindowIpc() {
     if (typeof query !== 'string') return [];
     const hs = services.getHistoryService();
     return hs ? hs.getAutocompleteSuggestions(query, limit || 8) : [];
+  });
+
+  // Brave search suggestions (public suggest endpoint, no API key needed)
+  handle('nw-brave-suggestions', async (event, query) => {
+    if (typeof query !== 'string' || !query.trim()) return [];
+    try {
+      const https = require('https');
+      const url = new URL('https://search.brave.com/api/suggest');
+      url.searchParams.set('q', query.trim().slice(0, 200));
+      const body = await new Promise((resolve) => {
+        const req = https.get(url.href, { timeout: 4000, headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' } }, (res) => {
+          if (res.statusCode !== 200) { res.resume(); return resolve([]); }
+          let data = '';
+          res.setEncoding('utf8');
+          res.on('data', (c) => { data += c; });
+          res.on('end', () => { try { const p = JSON.parse(data); resolve(Array.isArray(p) && Array.isArray(p[1]) ? p[1] : []); } catch { resolve([]); } });
+          res.on('error', () => resolve([]));
+        });
+        req.on('timeout', () => { req.destroy(); resolve([]); });
+        req.on('error', () => resolve([]));
+      });
+      return body;
+    } catch (e) { return []; }
   });
 
   // History data (for the internal history page)

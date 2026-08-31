@@ -144,6 +144,7 @@ const SEND_CHANNELS = new Set([
   'bookmarks-context-menu',
   'updater-install',
   'custom-sites-updated',
+  'overlay-suggestion-hover',
 ]);
 
 const INVOKE_CHANNELS = new Set([
@@ -191,6 +192,7 @@ const INVOKE_CHANNELS = new Set([
   'custom-sites-toggle',
   'get-groq-api-key',
   'set-groq-api-key',
+  'brave-suggestions',
 ]);
 const RECEIVE_CHANNELS = new Set([
   'url-changed',
@@ -223,6 +225,7 @@ const RECEIVE_CHANNELS = new Set([
   'updater-state-changed',
   'custom-sites-updated',
   'custom-sites-toggle-request',
+  'overlay-suggestion-hover',
 ]);
 
 // Minimal, safe scriptlets executed at document_start to help neutralize
@@ -404,6 +407,7 @@ const api = {
   getHistory: (limit, offset) => invoke('history-get', limit, offset),
   searchHistory: (query, limit, offset) => invoke('history-search', query, limit, offset),
   getAutocompleteSuggestions: (query, limit) => invoke('history-autocomplete', query, limit),
+  getBraveSuggestions: (query) => invoke('brave-suggestions', query),
   deleteHistoryEntry: (id) => invoke('history-delete-entry', id),
   clearHistory: () => invoke('history-clear'),
   getHistoryCount: () => invoke('history-get-count'),
@@ -527,6 +531,12 @@ const api = {
   notifyCustomSitesUpdated: () => send('custom-sites-updated'),
   onCustomSitesUpdated: (cb) => on('custom-sites-updated', cb),
   onCustomSitesToggleRequest: (cb) => on('custom-sites-toggle-request', cb),
+
+  // ── Overlay suggestion hover (mouse interaction syncs with keyboard nav) ──
+  // The overlay sends the hovered suggestion index so the main renderer's
+  // _acDropdownIdx stays in sync — Enter always activates the highlighted item.
+  setOverlaySuggestionHover: (index) => send('overlay-suggestion-hover', index),
+  onOverlaySuggestionHover: (cb) => on('overlay-suggestion-hover', cb),
 
   // ── Groq API Key (purpose-specific, replaces generic storeGet/storeSet) ──
   getGroqApiKey: () => invoke('get-groq-api-key'),

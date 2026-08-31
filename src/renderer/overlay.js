@@ -54,8 +54,10 @@ function renderSuggestions({ items, rect, selectedIndex = -1, richItems }) {
     btn.setAttribute('role', 'option');
     if (index === selectedIndex) btn.setAttribute('aria-selected', 'true');
 
-    const isSearch = index === items.length - 1 && value.includes('search.brave.com');
     const rich = richMap && richMap[index] ? richMap[index] : null;
+    const isLastItem = index === items.length - 1 && value.includes('search.brave.com');
+    const isBrave = rich && rich.type === 'brave';
+    const isSearch = isLastItem || isBrave;
     let displayText = value;
     let iconElement;
 
@@ -123,6 +125,24 @@ function sanitizeText(str) {
   d.textContent = str;
   return d.innerHTML;
 }
+
+// ── MOUSE HOVER → SELECTION SYNC ───────────────────────────
+// Delegated hover listener: when the user hovers a suggestion, highlight it
+// locally (instant, no IPC) and sync the index to the main renderer so
+// keyboard navigation (Enter) stays coherent with the visual state.
+suggestions.addEventListener('mouseenter', (e) => {
+  const btn = e.target.closest('.address-suggestion-item');
+  if (!btn) return;
+  const btns = Array.from(suggestions.querySelectorAll('.address-suggestion-item'));
+  const idx = btns.indexOf(btn);
+  if (idx < 0) return;
+  // Local visual highlight (instant — no re-render, no IPC round-trip)
+  btns.forEach((b, i) => b.setAttribute('aria-selected', i === idx ? 'true' : 'false'));
+  // Sync index to main renderer for Enter key state
+  if (window.kairon && typeof window.kairon.setOverlaySuggestionHover === 'function') {
+    window.kairon.setOverlaySuggestionHover(idx);
+  }
+}, true);
 
 // ── FAVICON URL SANITIZER (K-SEC-003) ───────────────────────
 // Validates favicon URLs for safe use in img src attributes.

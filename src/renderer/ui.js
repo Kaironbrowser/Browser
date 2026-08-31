@@ -1378,6 +1378,8 @@ export function createUiController(kairon, store, onLayoutChange) {
     suggVisible = false;
     selectedSuggIdx = -1;
     suggestionItems = [];
+    _acCurrentRichItems = [];
+    _acBraveSuggestions = [];
   }
 
   function _getOmnibarRect() {
@@ -1402,6 +1404,20 @@ export function createUiController(kairon, store, onLayoutChange) {
   let _acSuppressInput = false; // guard to prevent re-triggering during programmatic value changes
   let _acDebounceTimer = null;
   let _acBackspaceSuppressed = false; // true while autocomplete is suppressed after Backspace removes ghost text
+  let _acBraveQueryId = 0;     // monotonically increasing id to discard stale Brave responses
+  let _acBraveSuggestions = []; // cached Brave suggestion strings from latest response
+  let _acCurrentRichItems = []; // current rich items array sent with the overlay
+
+  // ── BOOKMARK CACHE ──────────────────────────────────────────
+  // Cached for omnibox deduplication and ranking. Populated on first
+  // omnibox interaction; live-synced via the bookmarks-updated push.
+  let _acBookmarkCache = null;
+  function _ensureBookmarkCache() {
+    if (_acBookmarkCache) return Promise.resolve();
+    return kairon.getBookmarks().then((list) => {
+      _acBookmarkCache = Array.isArray(list) ? list : [];
+    }).catch(() => { _acBookmarkCache = []; });
+  }
 
   // Strip protocol and www. prefix from a URL for matching purposes.
   function _stripUrlPrefix(url) {
@@ -1478,47 +1494,194 @@ export function createUiController(kairon, store, onLayoutChange) {
 
   // Debounced async query: fetches autocomplete suggestions from main process
   // and updates both the inline autocomplete and the dropdown.
+  // History results appear immediately; Brave suggestions arrive asynchronously
+  // and are merged in once available (progressive enhancement).
   async function _fetchAndShowSuggestions(query) {
-    if (!query || !_looksLikeUrl(query)) {
+    if (!query || query.trim().length === 0) {
       _hideSuggestions();
       _clearInlineAutocomplete();
-      // Still show a search suggestion if it looks like a search query
-      if (query && query.trim().length > 0) {
-        _showSearchOnlySuggestions(query.trim());
-      }
       return;
     }
-    try {
-      const results = await kairon.getAutocompleteSuggestions(query, 8);
-      _acSuggestions = Array.isArray(results) ? results : [];
 
-      // Find best inline autocomplete
-      const best = _findBestAutocomplete(query, _acSuggestions);
-      _applyInlineAutocomplete(best);
+    // Increment query id so stale Brave responses are discarded.
+    const thisQueryId = ++_acBraveQueryId;
+    _acBraveSuggestions = []; // reset while loading
+    _acSuggestions = [];
+    _acDropdownIdx = -1;
 
-      // Build dropdown items: all history matches + search fallback
-      _acDropdownIdx = -1;
-      _updateDropdownFromHistory(query);
-    } catch (err) {
-      if (UI_DIAG) console.error('[OMNIBAR] autocomplete error:', err);
-      _hideSuggestions();
-      // Fallback: always show at least a search suggestion so the
-      // omnibox dropdown is never completely empty.
-      if (query && query.trim().length > 0) {
-        _showSearchOnlySuggestions(query.trim());
+    const isUrlLike = _looksLikeUrl(query);
+
+    // 1. If the query looks URL-like, fetch local history autocomplete
+    //    and show results immediately (fast, no network).
+    if (isUrlLike) {
+      try {
+        const results = await kairon.getAutocompleteSuggestions(query, 8);
+        _acSuggestions = Array.isArray(results) ? results : [];
+
+        // Build dropdown with history + search fallback right away.
+        _updateDropdownFromHistory(query);
+
+        // Find best inline autocomplete from history.
+        const best = _findBestAutocomplete(query, _acSuggestions);
+        _applyInlineAutocomplete(best);
+      } catch (err) {
+        if (UI_DIAG) console.error('[OMNIBAR] autocomplete error:', err);
+        _hideSuggestions();
+        return;
       }
+    } else {
+      // Non-URL query: show merged results (search fallback only until
+      // Brave suggestions arrive and fill in the dropdown).
+      _updateDropdownFromMerged(query.trim());
     }
+
+    // 2. Fetch Brave suggestions (network, async) — merge when ready.
+    //    This runs for ALL queries, not just URL-like ones.
+    kairon.getBraveSuggestions(query).then((braveResults) => {
+      // Discard stale response: only apply if this query is still current.
+      if (thisQueryId !== _acBraveQueryId) return;
+      if (!Array.isArray(braveResults) || !braveResults.length) return;
+      _acBraveSuggestions = braveResults;
+      // Rebuild the full dropdown with Brave suggestions merged in.
+      _updateDropdownFromMerged(query);
+    }).catch(() => {}); // network failure is silent — history results stay visible
   }
 
-  // Show only a search suggestion (for non-URL inputs).
-  function _showSearchOnlySuggestions(query) {
+  // Merge Brave, history, and bookmark suggestions into a single
+  // deduplicated, smartly ranked list. Called after history loads and
+  // again when Brave results arrive (progressive enhancement).
+  // When there are no history or bookmark results, only the search
+  // fallback is shown (search-only mode for gibberish/non-URL queries).
+  async function _updateDropdownFromMerged(query) {
+    const q = query.toLowerCase();
+    const MAX_SUGGESTIONS = 10;
     const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}`;
-    suggestionItems = [searchUrl];
-    _acDropdownIdx = -1;
+
+    // Ensure bookmark cache is available.
+    await _ensureBookmarkCache();
+    const bookmarks = _acBookmarkCache || [];
+
+    const merged = [];
+    const seen = new Set();
+
+    function _dedupAndAdd(suggestion, text, type) {
+      // text = the display/label text used for deduplication (lowercase)
+      if (!text || seen.has(text)) return;
+      seen.add(text);
+      // Also dedup against bookmark URLs.
+      for (const bm of bookmarks) {
+        if (bm.url && bm.url.toLowerCase() === text) return;
+      }
+      merged.push(suggestion);
+    }
+
+    // ── 1. Bookmark suggestions ──────────────────────────────────
+    // Highest priority: user explicitly saved these. Dedup against Brave/history.
+    for (const bm of bookmarks) {
+      const bmTitle = (bm.title || '').toLowerCase();
+      const bmDisplayUrl = _stripUrlPrefix(bm.url).toLowerCase();
+      // Include if title or URL matches query.
+      if (bmTitle.includes(q) || bmDisplayUrl.includes(q)) {
+        _dedupAndAdd(
+          { url: bm.url, title: bm.title || '', favicon: bm.favicon || '', type: 'bookmark' },
+          bmTitle || bmDisplayUrl,
+          'bookmark'
+        );
+      }
+    }
+
+    // ── 2. Brave search suggestions ──────────────────────────────
+    for (const suggestion of _acBraveSuggestions) {
+      const suggLower = suggestion.toLowerCase();
+      if (seen.has(suggLower)) continue;
+      // Also skip if a bookmark URL already covers this suggestion.
+      let skipBookmark = false;
+      for (const bm of bookmarks) {
+        const bmUrl = bm.url.toLowerCase();
+        const bmDisplayUrl = _stripUrlPrefix(bm.url).toLowerCase();
+        if (bmUrl.includes(suggLower) || bmDisplayUrl.includes(suggLower)) {
+          skipBookmark = true;
+          break;
+        }
+      }
+      if (skipBookmark) continue;
+      seen.add(suggLower);
+      merged.push({
+        url: `https://search.brave.com/search?q=${encodeURIComponent(suggestion)}`,
+        title: suggestion,
+        favicon: '',
+        type: 'brave',
+        searchQuery: suggestion
+      });
+    }
+
+    // ── 3. History entries ───────────────────────────────────────
+    for (const s of _acSuggestions) {
+      const histLower = (s.title || '').toLowerCase();
+      const histUrlLower = s.url.toLowerCase();
+      if (seen.has(histLower) || seen.has(histUrlLower)) continue;
+      // Also skip if a Brave suggestion already covers this.
+      let skipBrave = false;
+      for (const br of _acBraveSuggestions) {
+        const brLower = br.toLowerCase();
+        if (histLower.includes(brLower) || histUrlLower.includes(brLower)) {
+          skipBrave = true;
+          break;
+        }
+      }
+      if (skipBrave) continue;
+      seen.add(histLower);
+      seen.add(histUrlLower);
+      merged.push({ url: s.url, title: s.title || '', favicon: s.favicon || '', type: 'history' });
+    }
+
+    // ── 4. Search fallback ───────────────────────────────────────
+    merged.push({ url: searchUrl, title: '', favicon: '', type: 'search', searchQuery: query });
+
+    // ── 5. Rank ──────────────────────────────────────────────────
+    // Score every suggestion (except the search fallback which is always last).
+    for (let i = 0; i < merged.length - 1; i++) {
+      const item = merged[i];
+      let score = 0;
+
+      // Get the searchable text for scoring.
+      const searchText = (item.title || '').toLowerCase();
+      const displayUrl = _stripUrlPrefix(item.url).toLowerCase();
+      const compareText = searchText || displayUrl;
+
+      // Position of query in the suggestion text (earlier = higher score).
+      const pos = compareText.indexOf(q);
+      if (pos === 0) score += 50;       // starts with query — strongest signal
+      else if (pos > 0) score += 30 - Math.min(20, pos * 3); // later = weaker
+
+      // URL prefix match bonus.
+      if (displayUrl.startsWith(q)) score += 40;
+
+      // Type bonuses (bookmarks > history > brave).
+      if (item.type === 'bookmark') score += 30;
+      else if (item.type === 'history') score += 15;
+      else if (item.type === 'brave') score += 5;
+
+      // Exact query match bonus.
+      if (compareText === q) score += 60;
+
+      item._score = score;
+    }
+
+    // Stable sort by score descending. Items with the same score keep their
+    // source-priority order (bookmarks > brave > history).
+    merged.sort((a, b) => (b._score || 0) - (a._score || 0));
+
+    // Limit total results (search fallback is always included).
+    const items = merged.slice(0, MAX_SUGGESTIONS);
+
+    // Map to flat URL array for the overlay
+    suggestionItems = items.map(i => i.url);
+    _acCurrentRichItems = items;
+
     const rect = _getOmnibarRect();
-    const rendererInfo = { innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, bodyClientWidth: document.body.clientWidth, docClientWidth: document.documentElement.clientWidth, screenWidth: window.screen.width, screenAvailWidth: window.screen.availWidth };
-    kairon.showOverlaySuggestions({ items: suggestionItems, rect, selectedIndex: -1, rendererInfo });
-    suggVisible = true;
+    kairon.showOverlaySuggestions({ items: suggestionItems, rect, selectedIndex: _acDropdownIdx, richItems: items });
+    suggVisible = suggestionItems.length > 0;
   }
 
   // Rebuild the dropdown from _acSuggestions + search fallback.
@@ -1535,6 +1698,7 @@ export function createUiController(kairon, store, onLayoutChange) {
 
     // Map to flat URL array for the overlay (overlay expects string[])
     suggestionItems = items.map(i => i.url);
+    _acCurrentRichItems = items;
 
     const rect = _getOmnibarRect();
     const rendererInfo = { innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, bodyClientWidth: document.body.clientWidth, docClientWidth: document.documentElement.clientWidth, screenWidth: window.screen.width, screenAvailWidth: window.screen.availWidth };
@@ -1572,9 +1736,10 @@ export function createUiController(kairon, store, onLayoutChange) {
 
   function _navigateSuggestions(direction) {
     if (!suggestionItems.length) return;
+    // Clamp to boundaries: do not wrap around.
     if (_acDropdownIdx === -1 && direction === 1) _acDropdownIdx = 0;
     else if (_acDropdownIdx === -1 && direction === -1) _acDropdownIdx = suggestionItems.length - 1;
-    else _acDropdownIdx = (_acDropdownIdx + direction + suggestionItems.length) % suggestionItems.length;
+    else _acDropdownIdx = Math.max(0, Math.min(suggestionItems.length - 1, _acDropdownIdx + direction));
 
     const selectedValue = suggestionItems[_acDropdownIdx];
     const displayUrl = _stripUrlPrefix(selectedValue);
@@ -1586,7 +1751,7 @@ export function createUiController(kairon, store, onLayoutChange) {
     _acGhostOffset = -1;
     queueMicrotask(() => { _acSuppressInput = false; });
 
-    kairon.showOverlaySuggestions({ items: suggestionItems, rect: _getOmnibarRect(), selectedIndex: _acDropdownIdx, richItems: _acSuggestions });
+    kairon.showOverlaySuggestions({ items: suggestionItems, rect: _getOmnibarRect(), selectedIndex: _acDropdownIdx, richItems: _acCurrentRichItems });
   }
 
   // Accept the current autocomplete suggestion (Tab).
@@ -1755,7 +1920,10 @@ export function createUiController(kairon, store, onLayoutChange) {
     });
     // Live list — same push the Bookmarks page consumes, so Ctrl+D, the star
     // button, and deletes elsewhere update the bar immediately.
-    kairon.onBookmarksUpdated((list) => _renderBookmarksBar(list));
+    kairon.onBookmarksUpdated((list) => {
+      _renderBookmarksBar(list);
+      _acBookmarkCache = Array.isArray(list) ? list : null; // sync omnibox dedup cache
+    });
     // Boot pull so the bar renders before any push arrives (persisted list).
     kairon.getBookmarks().then(_renderBookmarksBar).catch(() => {});
 
@@ -1775,12 +1943,21 @@ export function createUiController(kairon, store, onLayoutChange) {
 
       if (e.key === 'Enter') {
         e.preventDefault();
-        // If dropdown is selected, navigate to that; else use address bar value
-        const val = addressBar.value.trim();
-        _hideSuggestions();
-        _clearInlineAutocomplete();
-        kairon.navigate(val);
-        _pushHistory(val);
+        if (_acDropdownIdx >= 0 && _acDropdownIdx < suggestionItems.length) {
+          // A suggestion is selected — navigate to it.
+          const selectedUrl = suggestionItems[_acDropdownIdx];
+          _hideSuggestions();
+          _clearInlineAutocomplete();
+          kairon.navigate(selectedUrl);
+          _pushHistory(selectedUrl);
+        } else {
+          // No suggestion selected — use address bar value.
+          const val = addressBar.value.trim();
+          _hideSuggestions();
+          _clearInlineAutocomplete();
+          kairon.navigate(val);
+          _pushHistory(val);
+        }
         addressBar.blur();
         return;
       }
@@ -1843,6 +2020,17 @@ export function createUiController(kairon, store, onLayoutChange) {
 
     addressBar.addEventListener('input', _onAddressInput);
     addressBar.addEventListener('blur', () => setTimeout(_hideSuggestions, 150));
+
+    // ── OVERLAY HOVER SYNC ────────────────────────────────────────
+    // The overlay's mouseenter listener sends the hovered suggestion index
+    // so keyboard navigation (Enter) stays coherent with the visual highlight.
+    if (typeof kairon.onOverlaySuggestionHover === 'function') {
+      kairon.onOverlaySuggestionHover((index) => {
+        if (suggVisible && index >= 0 && index < suggestionItems.length) {
+          _acDropdownIdx = index;
+        }
+      });
+    }
 
     // ── CHROME FOCUS TRACKING ────────────────────────────────────
     // Report to the main process when the browser chrome's text inputs (address

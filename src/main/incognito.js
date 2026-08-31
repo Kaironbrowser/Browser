@@ -1281,6 +1281,15 @@ function registerIpc() {
     navigateIncognitoTab(tab, target);
   });
 
+  // ── OVERLAY SUGGESTION HOVER ──────────────────────────────────
+  // The incognito overlay sends the hovered suggestion index so the incognito
+  // chrome's keyboard navigation stays in sync with mouse interaction.
+  onChannel('incognito-overlay-suggestion-hover', (event, index) => {
+    if (incognitoWindow && !incognitoWindow.isDestroyed()) {
+      incognitoWindow.webContents.send('overlay-suggestion-hover', index);
+    }
+  });
+
   // ── OVERLAY (downloads panel) ───────────────────────────────
   onChannel('incognito-show-downloads-panel', (event, payload) => {
     if (!incognitoOverlay || incognitoOverlay.isDestroyed()) return;
@@ -1380,6 +1389,29 @@ function registerIpc() {
   // ── INVOKE: autocomplete (Incognito never queries or persists history) ──
   handle('incognito-history-autocomplete', () => {
     return [];
+  });
+
+  // ── INVOKE: Brave search suggestions (works in incognito — no local data) ──
+  handle('incognito-brave-suggestions', async (event, query) => {
+    if (typeof query !== 'string' || !query.trim()) return [];
+    try {
+      const https = require('https');
+      const url = new URL('https://search.brave.com/api/suggest');
+      url.searchParams.set('q', query.trim().slice(0, 200));
+      const body = await new Promise((resolve) => {
+        const req = https.get(url.href, { timeout: 4000, headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' } }, (res) => {
+          if (res.statusCode !== 200) { res.resume(); return resolve([]); }
+          let data = '';
+          res.setEncoding('utf8');
+          res.on('data', (c) => { data += c; });
+          res.on('end', () => { try { const p = JSON.parse(data); resolve(Array.isArray(p) && Array.isArray(p[1]) ? p[1] : []); } catch { resolve([]); } });
+          res.on('error', () => resolve([]));
+        });
+        req.on('timeout', () => { req.destroy(); resolve([]); });
+        req.on('error', () => resolve([]));
+      });
+      return body;
+    } catch (e) { return []; }
   });
 
   // ── INVOKE: downloads data (overlay panel + internal downloads page) ──

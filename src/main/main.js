@@ -4465,6 +4465,13 @@ ipcMain.on('hide-overlay-suggestions', (event) => {
   updateOverlayBounds();
 });
 
+ipcMain.on('overlay-suggestion-hover', (event, index) => {
+  if (!isTrustedIpcSender(event)) return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('overlay-suggestion-hover', index);
+  }
+});
+
 ipcMain.on('navigate-to-suggestion', (event, url) => {
   if (!isTrustedIpcSender(event)) return;
   const tab = getActiveTab();
@@ -5057,6 +5064,56 @@ ipcMain.handle('settings-import', (event, jsonText) => {
   return true;
 });
 
+// ── BRAVE SUGGEST HELPER ──────────────────────────────────────
+// Fetches search suggestions from Brave's public suggest endpoint.
+// Returns an array of suggestion strings. Only the query is sent;
+// no user data, history, cookies, or page content is included.
+const _BRAVE_SUGGEST_URL = 'https://search.brave.com/api/suggest';
+const _BRAVE_SUGGEST_TIMEOUT_MS = 4000;
+
+function _fetchBraveSuggestions(query) {
+  return new Promise((resolve, reject) => {
+    try {
+      const https = require('https');
+      const url = new URL(_BRAVE_SUGGEST_URL);
+      url.searchParams.set('q', query);
+      const req = https.get(url.href, {
+        timeout: _BRAVE_SUGGEST_TIMEOUT_MS,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        },
+      }, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          return reject(new Error(`Brave suggest HTTP ${res.statusCode}`));
+        }
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            // Response format: ["query", ["suggestion1", "suggestion2", ...]]
+            if (Array.isArray(parsed) && Array.isArray(parsed[1])) {
+              resolve(parsed[1]);
+            } else {
+              resolve([]);
+            }
+          } catch (e) {
+            resolve([]);
+          }
+        });
+        res.on('error', () => resolve([]));
+      });
+      req.on('timeout', () => { req.destroy(); reject(new Error('Brave suggest timeout')); });
+      req.on('error', () => resolve([]));
+    } catch (e) {
+      resolve([]);
+    }
+  });
+}
+
 // Network diagnostics (trusted renderer only)
 ipcMain.handle('run-network-diagnostics', async (event) => {
   if (!isTrustedIpcSender(event)) throw new Error('Unauthorized IPC sender');
@@ -5254,6 +5311,23 @@ app.whenReady().then(async () => {
     if (!historyService) return [];
     if (typeof query !== 'string') return [];
     return historyService.getAutocompleteSuggestions(query, limit || 8);
+  });
+
+  // ── BRAVE SEARCH SUGGESTIONS (network, main process only) ─────
+  // Fetches real-time search suggestions from Brave's public suggest endpoint.
+  // The request stays in the main process — no network APIs are exposed to
+  // webpage BrowserViews. Only the raw query string is sent; no history,
+  // cookies, or page content is included.
+  ipcMain.handle('brave-suggestions', async (event, query) => {
+    if (!isTrustedIpcSender(event)) return [];
+    if (typeof query !== 'string' || !query.trim()) return [];
+    const trimmed = query.trim().slice(0, 200); // cap query length
+    try {
+      const suggestions = await _fetchBraveSuggestions(trimmed);
+      return suggestions;
+    } catch (err) {
+      return []; // graceful failure — caller falls back to local history
+    }
   });
 
   ipcMain.handle('history-delete-entry', (event, id) => {

@@ -17,6 +17,7 @@ This document describes what Kairon Browser **actually does right now**, verifie
 - **Navigation buttons**: Back / Forward (enabled per the active tab's `navigationHistory.canGoBack/Forward`) and Reload (while a page is loading the same button acts as Stop via `webContents.stop()`). There is no dedicated Home button — the home page is reached via a new tab, the address bar (`home`), or `Ctrl+H`-style navigation to `kairon://home`.
 - **Popups**: `window.open` is intercepted and opened as a new Kairon tab (`popup-blocker` rule); popups are never allowed as separate windows.
 - **Open Link in New Window** (context menu) creates a standalone plain `BrowserWindow` (no Kairon chrome) loading the URL. Standalone windows are tracked in a set and **closed when the main browser window closes**, so the app never keeps running invisibly in the background after the browser UI is gone.
+- **New Window** (`Ctrl+N` / app menu "New Window"): opens a fully independent browser window with its own tabs, overlay, and layout, sharing the same session (cookies, history, bookmarks) as the main window. Each window has its own tab management, sidebar state, and zoom controls. All additional windows are tracked and **closed when the main browser window closes**. The app menu (hamburger icon) in every window provides "New Window" as a top-level action alongside "New Tab" and "New Incognito Window".
 - **Page zoom**: per-tab zoom factor clamped to 0.25–5.0, stepped presets, `Ctrl+=`/`Ctrl+-`/`Ctrl+0` and on-screen buttons with a live percentage readout. Zoom applies per-tab and is reapplied on `dom-ready`/`did-finish-load`; it is **not** persisted across restarts.
 - **Search engine**: Brave Search is hardcoded as the only search provider (address bar, context menu "Search", home page form).
 - **Internal pages**: home page (`kairon://home` → `home.html`), history page (`kairon://history` → `history.html`), bookmarks page (`kairon://bookmarks` → `bookmarks.html`), downloads page (`kairon://downloads` → `downloads.html`), settings page (`kairon://settings` → `settings.html`), HTTPS-Only warning page, a "This site cannot be reached" load-error page (shown on `did-fail-load`), and a dedicated DNS-resolution "IP not found" page (shown for DNS error codes −105/−137). All internal pages are local files loaded into a tab and are trusted only while their URL is the local file (see §13).
@@ -48,29 +49,32 @@ This document describes what Kairon Browser **actually does right now**, verifie
 
 All verified in code. Modifier is **Ctrl** (Meta on macOS) unless noted.
 
-| Shortcut | Where handled | Action |
-|---|---|---|
-| `Ctrl+T` | Main (`before-input-event`, page & chrome) + renderer | New tab |
-| `Ctrl+Shift+T` | Main only (page & chrome) | Reopen last closed tab |
-| `Ctrl+W` | Main (page & chrome) + renderer | Close active tab |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Main (page & chrome) | Cycle tabs (visual order, wraps) |
-| `F11` | Main (page & chrome) | Toggle window fullscreen; exits content fullscreen if a site is fullscreen |
-| `Ctrl+R` | Renderer (chrome focus); default Electron menu accelerator in pages | Reload |
-| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Main (page) + renderer (chrome) | Zoom in / out / reset |
-| `Ctrl+L` | Renderer | Focus + select address bar |
-| `Ctrl+K` | Renderer | Focus + select address bar (commands hint) |
-| `Ctrl+H` | Renderer | Open history page in active tab |
-| `Ctrl+D` | Main (`before-input-event`, page & chrome) | Bookmark / un-bookmark the current page (star state updates live) |
-| `Ctrl+[` / `Ctrl+]` | Renderer | Back / Forward |
-| `Alt+Left` / `Alt+Right` | Renderer | Back / Forward |
-| `Ctrl+,` | Renderer (`renderer.js`) | Open Settings page in active tab (`kairon://settings`) |
-| `Enter` | Renderer | Navigate from address bar |
-| `Esc` | Renderer | Blur address bar / close suggestions; cancels a tab drag; closes settings; closes history confirm modal |
-| `↑` / `↓` | Renderer | Navigate address-bar suggestions |
-| `Shift+Enter` in AI input | Renderer | Newline (Enter alone sends) |
-| `Escape` / drag cancel | Renderer | See §10 |
+| Shortcut                       | Where handled                                                       | Action                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `Ctrl+T`                       | Main (`before-input-event`, page & chrome) + renderer               | New tab                                                                                                 |
+| `Ctrl+Shift+T`                 | Main only (page & chrome)                                           | Reopen last closed tab                                                                                  |
+| `Ctrl+W`                       | Main (page & chrome) + renderer                                     | Close active tab                                                                                        |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab`  | Main (page & chrome)                                                | Cycle tabs (visual order, wraps)                                                                        |
+| `Ctrl+N`                       | Main (page & chrome)                                                | Open new browser window (independent tabs, shared session)                                              |
+| `F11`                          | Main (page & chrome)                                                | Toggle window fullscreen; exits content fullscreen if a site is fullscreen                              |
+| `Ctrl+R`                       | Renderer (chrome focus); default Electron menu accelerator in pages | Reload                                                                                                  |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Main (page) + renderer (chrome)                                     | Zoom in / out / reset                                                                                   |
+| `Ctrl+L`                       | Renderer                                                            | Focus + select address bar                                                                              |
+| `Ctrl+K`                       | Renderer                                                            | Focus + select address bar (commands hint)                                                              |
+| `Ctrl+H`                       | Renderer                                                            | Open history page in active tab                                                                         |
+| `Ctrl+D`                       | Main (`before-input-event`, page & chrome)                          | Bookmark / un-bookmark the current page (star state updates live)                                       |
+| `Ctrl+[` / `Ctrl+]`            | Renderer                                                            | Back / Forward                                                                                          |
+| `Alt+Left` / `Alt+Right`       | Renderer                                                            | Back / Forward                                                                                          |
+| `Ctrl+,`                       | Renderer (`renderer.js`)                                            | Open Settings page in active tab (`kairon://settings`)                                                  |
+| `Enter`                        | Renderer                                                            | Navigate from address bar                                                                               |
+| `Esc`                          | Renderer                                                            | Blur address bar / close suggestions; cancels a tab drag; closes settings; closes history confirm modal |
+| `↑` / `↓`                      | Renderer                                                            | Navigate address-bar suggestions                                                                        |
+| `Tab`                          | Renderer                                                            | Accept omnibar inline autocomplete                                                                      |
+| `ArrowRight` at end of input   | Renderer                                                            | Accept omnibar inline autocomplete                                                                      |
+| `Shift+Enter` in AI input      | Renderer                                                            | Newline (Enter alone sends)                                                                             |
+| `Escape` / drag cancel         | Renderer                                                            | See §10                                                                                                 |
 
-**Not implemented**: `F5`, `Ctrl+1…9` tab selection, `Ctrl+Shift+P`, `Ctrl+Shift+I`, and any other shortcuts not listed above. `Ctrl+Alt+Tab` is deliberately left untouched (never intercepted).
+**Not implemented**: `F5`, `Ctrl+1…9` tab selection, `Ctrl+Shift+P`, `Ctrl+Shift+I`, and any other shortcuts not listed above. `Ctrl+N` is now implemented (opens a new browser window). `Ctrl+Alt+Tab` is deliberately left untouched (never intercepted).
 
 ## 5. History & Local Storage
 
@@ -95,7 +99,7 @@ Two independent fullscreen modes that never fight:
 - **Content fullscreen** (HTML Fullscreen API — YouTube, `<video>`, etc.): on `enter-html-full-screen` the window is put into fullscreen so the active view covers the whole screen; on `leave-html-full-screen` (page ESC/`exitFullscreen()`) the window returns to whatever state it was in before (F11 state is remembered via `windowFullscreenBeforeHtml`).
 - **F11 pressed while a site is fullscreen** exits the content fullscreen (same as ESC) instead of toggling the window.
 - **Closing a tab that is in content fullscreen** restores the window state.
-- **Transition handling**: `enter-full-screen` marks a ~400 ms transition window during which the view is *not* repositioned with chrome-offset metrics (prevents the viewport jump / black band bug), then re-applies settled bounds.
+- **Transition handling**: `enter-full-screen` marks a ~400 ms transition window during which the view is _not_ repositioned with chrome-offset metrics (prevents the viewport jump / black band bug), then re-applies settled bounds.
 - Window controls: minimize, maximize/unmaximize toggle, close (all via IPC from the custom title bar).
 - Alt+Tab return: the window `focus` handler hands keyboard focus to the active page **unless** a chrome text input (address bar / AI input) was focused at blur — that focus is preserved.
 
@@ -142,7 +146,10 @@ Only mechanisms present in code are listed; none are guaranteed protections.
 - **Popup blocking**: every `window.open` becomes a new tab; a `popup-blocker` rule is reported.
 - **Process/sandbox hardening**: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false` on all tab views; `webviewTag: false` on the shell; a **preload channel allowlist** rejects any non-allowlisted IPC channel; all IPC handlers validate the sender (`isTrustedIpcSender` / tab views) and payloads.
 - **Error logging**: uncaught exceptions / unhandled rejections / renderer errors are appended to `kairon-errors.log` under `userData/logs` (no crash-report upload).
-- **Permissions**: no permission UI exists; a session permission handler always grants (installed to observe camera/mic/screen capture for tab-sleep).
+- **Permissions** (deny-by-default): a session-level permission handler on both the main browsing session and the incognito session denies camera, microphone, geolocation, notifications, screen capture, and other sensitive hardware/system permissions for untrusted web content. Only clipboard operations (copy/paste) and fullscreen (HTML Fullscreen API) are always allowed. Trusted Kairon browser chrome (main window, overlay, additional windows, incognito chrome/overlay) receives all requested permissions. The handler also notifies the tab-sleep manager of capture permission grants/denials.
+- **Incognito site blocking**: the Site Blocker list is enforced in incognito tabs — blocked navigations, redirects, popups, and address-bar entries are intercepted and reported via `incognito-adblock-event`.
+- **Incognito partition isolation**: incognito tabs and overlay use a dedicated `incognito` session partition with `sandbox: true`, separate from the `persist:browser` partition used by normal browsing.
+- **Sensitive store key protection**: incognito windows cannot access sensitive keys (e.g. `groqApiKey`) from the shared electron-store — generic `store-get`/`store-set` IPC checks a blocklist and throws on restricted keys; purpose-specific IPC (`incognito-get-groq-api-key`) is provided instead.
 
 **Not implemented / not protected**: ClearURLs, first-party isolation, canvas/WebGL fingerprint protection, custom cookie controls, CNAME uncloaking, extensions, VPN, or any encrypted-sync/cloud account.
 
@@ -150,22 +157,26 @@ Only mechanisms present in code are listed; none are guaranteed protections.
 
 - **Tab placement**: sidebar (left rail) or top tab bar; toggled in Settings → Appearance → Tab Position (persisted in `localStorage` + synced with the `themeSystem` feature; works both directions).
 - **Left rail**: collapsible (persisted), contains the tab list, New Tab, and AI / History / Settings buttons.
-- **Omnibar suggestions**: shown in a dedicated transparent, always-on-top, click-through overlay window that can overlap page content. Suggestions = address-bar history + open-tab URLs + a final Brave Search entry (max 6); arrow keys cycle, Enter navigates, Esc closes. The overlay is clamped to the window bounds. The overlay consumes the same global theme (`?theme=` at load + live `settings-updated` sync), so the dropdown, suggestion rows, hover/selected state, icons, and search-row text are light in Light Mode and dark in Dark Mode.
-- **Bookmark star (⭐)**: sits beside the omnibox. It reflects the active tab's live bookmark state (filled when bookmarked; disabled on internal/unsupported pages) and opens a small **Quick Access / Bookmarks chooser popup** (rendered in the overlay window) with two rows: "Add/Remove from Bookmarks" and "Add/Remove from Quick Access". `Ctrl+D` toggles the active page's bookmark directly.
+- **Omnibar suggestions & autocomplete**: shown in a dedicated transparent, always-on-top, click-through overlay window that can overlap page content. The omnibox now features **inline autocomplete**: as the user types, the best-matching history URL is shown as ghost text (protocol-stripped) with the auto-completed portion selected, ready to be accepted with **Tab** or **ArrowRight** at end-of-input. The dropdown shows history-based rich suggestions (url, title, favicon) plus a Brave Search fallback at the end (max 8). Debounced 60 ms input → async IPC `getAutocompleteSuggestions` → inline ghost + dropdown update. Arrow keys cycle the dropdown, Enter navigates, Esc first dismisses suggestions (restoring the typed query) then blurs on second Esc. Backspace suppresses ghost text to avoid re-applying the same suggestion. The overlay is clamped to the window bounds and consumes the same global theme (`?theme=` at load + live `settings-updated` sync), so the dropdown, suggestion rows, hover/selected state, icons, and search-row text are light in Light Mode and dark in Dark Mode.
+- **Bookmark star (⭐)**: sits beside the omnibox. It reflects the active tab's live bookmark state (filled when bookmarked; disabled on internal/unsupported pages) and opens a small **Quick Access / Bookmarks / Custom Sites chooser popup** (rendered in the overlay window) with three rows: "Add/Remove from Bookmarks", "Add/Remove from Quick Access", and "Add/Remove from Custom Sites". `Ctrl+D` toggles the active page's bookmark directly.
 - **Bookmarks bar**: appears beneath the toolbar whenever bookmarks exist (hidden when empty and in Incognito). Each item opens its URL; right-clicking opens a native menu (open in active tab / delete).
-- **Quick Access vs Bookmarks**: separate persistent stores (both `electron-store`-backed, http(s) only). Quick Access feeds the home page's dial grid; Bookmarks feed the star state, the bookmarks bar, and the `kairon://bookmarks` page. Adding to one never affects the other.
+- **Quick Access vs Bookmarks vs Custom Sites**: three separate persistent stores (Quick Access and Bookmarks are `electron-store`-backed; Custom Sites is `localStorage`-backed). Quick Access feeds the home page's dial grid; Bookmarks feed the star state, the bookmarks bar, and the `kairon://bookmarks` page; Custom Sites renders a pinned-website tile grid in the side rail. Adding to one never affects the others.
 - **Downloads panel & page**: the toolbar Downloads button opens a floating panel (rendered in the overlay window) with the live download list; "Show more" opens the full `kairon://downloads` page. Both render the same main-process-pushed list and reconcile progress updates in place (see §3).
-- **Status strip**: "N total · N blocked · N allowed" counters + page title. Note: `adblock-event` is currently only emitted for *blocked* requests, so "allowed" stays 0.
+- **Status strip**: "N total · N blocked · N allowed" counters + page title. Note: `adblock-event` is currently only emitted for _blocked_ requests, so "allowed" stays 0.
+- **Custom Sites** (side rail): a renderer-only feature (`custom-sites.js`) that renders pinned-website tiles in the left rail. Entries are managed through the ⭐ chooser popup ("Add/Remove from Custom Sites"), stored in `localStorage` under `kairon:custom-sites`, and include name, URL, and favicon (derived from Google's favicon service). Duplicate detection uses canonical URL comparison. The grid updates live when entries are added/removed.
 - **Shields menu** (shield icon): quick Off / Standard / Aggressive switching with toast feedback.
 - **Zoom controls**: − / value% / + / reset.
 - **AI panel** (see §12): collapsible right-side panel; toggling re-measures and re-applies the view layout.
 - **Home page**: clock + greeting (updates every 5 s), search form (same normalization as the address bar), and a **Quick Access** dial grid rendered from the persistent Quick Access store (seeded with the historical 8 default dials — YouTube, GitHub, Brave Search, Gmail, X, Reddit, Stack Overflow, Hacker News — on first run). The grid updates live via `quick-access-updated` pushes when entries are added/removed through the ⭐ chooser, and hides when empty.
 - **Settings page**: first-class internal page (`kairon://settings` → `settings.html`) opened in a tab. Monochrome sidebar layout (Appearance / Privacy / Security / Advanced — only categories with genuinely wired settings are shown), live registry-driven search with deep links to results, feature toggles and sub-settings, export/import JSON, Reset All, a DNS-restart confirmation modal, and keyboard navigation. The settings page is trusted only while its tab URL is the local `settings.html` file (same sender-validation model as the history page).
+- **App menu** (hamburger icon, rendered in the overlay window): global actions — New Tab, New Window (`Ctrl+N`), New Incognito Window, Back, Forward, Reload, Zoom controls, Fullscreen toggle, Shields toggle, Tab Position toggle, Settings, and About. The menu also shows the **auto-updater status** (version text, "Update available" / "Update ready" indicator, and an "Install" button when an update has been downloaded). The menu height is measured dynamically by the overlay and reported back so it is never clipped.
+- **Auto-updater** (`electron-updater`): checks for updates 5 seconds after startup (background); state transitions (checking → available → downloading → ready) are broadcast to every window via IPC and displayed in the app menu. "Install" triggers `quitAndInstall`. Pre-release versions are not offered.
 - **Theming**: `themeSystem.mode` (dark default / light) is a **global application theme** — one FeatureStore value drives the entire Kairon UI. The browser chrome (left rail, tabs, toolbar, address bar, window controls, zoom, status strip), the omnibox suggestions overlay, and every Kairon-owned internal page (home, history, bookmarks, downloads, settings, HTTPS warning, load-error, DNS error) share the same CSS-variable palette. The main process passes the current mode as `?theme=` when loading the chrome, overlay, and internal pages (first paint), and live-syncs every change via the existing `settings-updated` push, so switching themes in Settings re-skins everything instantly without a restart. The selected mode is also exposed to websites through Chromium's standard `prefers-color-scheme` media feature via `nativeTheme.themeSource` (set on boot and on every settings change): sites that support the media query respond themselves, and sites that don't are never touched — no CSS/DOM injection into websites.
 
 ## 10. Context Menus
 
 **Webpage context menu** (native Electron `Menu`, per right-click context):
+
 - Page: Back (enabled per history), Forward, Reload.
 - Link: Open Link, Open Link in New Tab, Open Link in New Window, Copy Link Address.
 - Image: Open Image in New Tab, Save Image As… (native save dialog + fetch), Copy Image Address.
@@ -178,6 +189,7 @@ Only mechanisms present in code are listed; none are guaranteed protections.
 **Bookmarks bar context menu** (right-click a bookmark): Open in Active Tab / Delete (native `Menu`; the bookmark is re-validated by id/URL in the main process before anything is shown or acted on).
 
 **Tab reorder** (verified against `ui.js` + `main.js`):
+
 - Works in both modes: horizontal axis in top-tab mode, vertical axis in sidebar mode.
 - Left-button drag only, from any non-button part of a tab; **6 px threshold** before a drag activates (plain clicks are never drags).
 - The dragged tab is lifted out of flow, anchored at its start position, and follows the pointer along the strip axis only (`translate(…)`, cross-axis stays 0), scale 1.03; a same-size placeholder holds its slot and an insertion caret marks the drop point.
@@ -194,7 +206,7 @@ Only mechanisms present in code are listed; none are guaranteed protections.
 - Snapshot = ordered tab list (`{id, url, title}`) + `activeTabId`; only http(s) URLs and `kairon://home` are persistable; URLs are sanitized; **max 20 tabs**.
 - Written debounced (500 ms) after every tabs-state change; flushed synchronously on quit/restart (a `flushSessionPersist` guard avoids writing a cleared tabs Map).
 - Restored at startup: recreates tabs (with their original ids), sets titles, restores the active tab. Restored tabs start fresh (no scroll position / form state / back-forward history).
-- Not persisted: closed-tab stack, zoom factors, window bounds, tab order beyond the snapshot order (order *is* persisted), pinned state, tab position preference (stored in `localStorage`/feature settings separately).
+- Not persisted: closed-tab stack, zoom factors, window bounds, tab order beyond the snapshot order (order _is_ persisted), pinned state, tab position preference (stored in `localStorage`/feature settings separately).
 
 ## 12. Database Architecture
 
@@ -206,23 +218,23 @@ Only mechanisms present in code are listed; none are guaranteed protections.
 
 ## 13. Internal Pages
 
-| Page | URL | Contents |
-|---|---|---|
-| Home | `kairon://home` | Clock/greeting, search form, Quick Access dial grid (see §9) |
-| History | `kairon://history` | History dashboard (see §5) |
-| Bookmarks | `kairon://bookmarks` | Searchable bookmark list — open / delete (see §9, §10) |
-| Downloads | `kairon://downloads` | Download manager list — live progress, per-download actions, clear with confirmation (see §3) |
-| Settings | `kairon://settings` (and `kairon://settings/<section>`) | Settings sidebar + category pages (see §9) |
-| HTTPS warning | (loaded file) | "This connection is not secure" — Proceed / Go back |
-| Load error | (loaded file) | "This site cannot be reached" with code/description |
-| DNS error | (loaded file) | "IP not found" page for DNS-resolution failures (codes −105/−137) |
+| Page          | URL                                                     | Contents                                                                                      |
+| ------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Home          | `kairon://home`                                         | Clock/greeting, search form, Quick Access dial grid (see §9)                                  |
+| History       | `kairon://history`                                      | History dashboard (see §5)                                                                    |
+| Bookmarks     | `kairon://bookmarks`                                    | Searchable bookmark list — open / delete (see §9, §10)                                        |
+| Downloads     | `kairon://downloads`                                    | Download manager list — live progress, per-download actions, clear with confirmation (see §3) |
+| Settings      | `kairon://settings` (and `kairon://settings/<section>`) | Settings sidebar + category pages (see §9)                                                    |
+| HTTPS warning | (loaded file)                                           | "This connection is not secure" — Proceed / Go back                                           |
+| Load error    | (loaded file)                                           | "This site cannot be reached" with code/description                                           |
+| DNS error     | (loaded file)                                           | "IP not found" page for DNS-resolution failures (codes −105/−137)                             |
 
 ## 14. Current Limitations
 
 - Incognito mode exists but is the same chrome in an in-memory session: it stops Kairon from retaining local browsing data (history, the download list, cookies/storage) after the window closes, but provides **no anonymity** — no IP hiding, no protection from websites/ISPs/network administrators.
 - The registered `downloadManager.askEveryDownload` setting is not consulted — downloads always auto-save with no Save As prompt.
 - The history page's per-row star buttons are decorative (in-memory, per-session); real bookmarks live in the ⭐ chooser, the bookmarks bar, and `kairon://bookmarks`.
-- No tab groups, no tab tear-off, no window multi-instance management beyond one main window + tracked standalone child windows.
+- No tab groups, no tab tear-off. (Multi-window via `Ctrl+N` is now supported — each additional window is a fully independent browser instance sharing the same session.)
 - AI panel requires a Groq API key but **no UI exists to enter it** (the panel reads `groqApiKey` from the internal store); conversation is in-memory only, "streaming" is a simulated word-by-word reveal over a non-streaming request.
 - Theme mode (dark/light) affects the whole Kairon UI (chrome + internal pages + omnibox overlay) and is exposed to normal websites only through the standard `prefers-color-scheme` media feature (via `nativeTheme.themeSource`) — websites are never forcibly restyled and non-supporting sites render exactly as they normally do; the chrome and internal pages share one monochrome palette.
 - Adblocker filter lists are fetched at init only — no background refresh while running.
@@ -247,4 +259,4 @@ The following are **registered in settings/registry or mentioned in comments/doc
 
 ---
 
-*Verified against the current source (commit state at time of writing). Where code and older docs disagreed, the code was treated as the source of truth.*
+_Verified against the current source (commit state at time of writing). Where code and older docs disagreed, the code was treated as the source of truth._
