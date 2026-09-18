@@ -15,8 +15,9 @@
   // The four sidebar categories. Only categories backed by genuinely
   // wired settings exist; the page never invents settings to fill a
   // category. Titles/subtitles match the supplied design.
-  const CATEGORIES = [
-    { id: 'appearance', label: 'Appearance', description: 'Customize how Kairon looks and how tabs are arranged.' },
+	  const CATEGORIES = [
+	    { id: 'appearance', label: 'Appearance', description: 'Customize how Kairon looks and how tabs are arranged.' },
+	    { id: 'side-rail', label: 'Side Rail', description: 'Configure the built-in browser Side Rail.' },
     { id: 'privacy',    label: 'Privacy',    description: 'Protections that limit tracking and data exposure.' },
     { id: 'security',   label: 'Security',   description: 'Controls that keep unsafe sites and content away.' },
     { id: 'downloads',  label: 'Downloads',  description: 'Choose where downloaded files are saved.' },
@@ -27,7 +28,7 @@
   // Data layer only: searchable labels/keywords for each wired feature.
   // Registered-but-inert features are intentionally absent — no fake toggles.
   const FEATURES = {
-    themeSystem: {
+	    themeSystem: {
       id: 'themeSystem',
       name: 'Theme',
       category: 'appearance',
@@ -35,8 +36,17 @@
         { key: 'mode', label: 'Theme mode', description: 'Dark or light color scheme for Kairon\u2019s interface and for websites that support it.' },
         { key: 'tabPosition', label: 'Tab position', description: 'Where the tab strip sits in the browser window.' },
       ],
-      keywords: ['theme', 'dark', 'light', 'dark mode', 'light mode', 'appearance', 'tab position', 'sidebar', 'top bar', 'tabs', 'layout'],
-    },
+	      keywords: ['theme', 'dark', 'light', 'dark mode', 'light mode', 'appearance', 'tab position', 'sidebar', 'top bar', 'tabs', 'layout'],
+	    },
+	    sideRail: {
+	      id: 'sideRail', name: 'Side Rail', category: 'side-rail',
+	      rows: [
+	        { key: 'position', label: 'Position', description: 'Place the Side Rail on the left or right edge.' },
+	        { key: 'width', label: 'Width', description: 'Choose compact or normal width.' },
+	        { key: 'showCustomSites', label: 'Pinned sites', description: 'Show pinned websites in the Side Rail.' },
+	      ],
+	      keywords: ['side rail', 'rail', 'browser frame', 'position', 'width', 'pinned sites', 'navigation buttons'],
+	    },
     adBlocker: {
       id: 'adBlocker',
       name: 'Ad Blocker',
@@ -185,7 +195,7 @@
   // ── CONTROLS: reflect snapshot into the static DOM ──────────
   function applyControls() {
     // Segmented controls
-    for (const seg of document.querySelectorAll('.segment[data-setting]')) {
+	    for (const seg of document.querySelectorAll('.segment[data-setting]')) {
       const def = runtime(seg.dataset.feature);
       seg.classList.toggle('selected', String(seg.dataset.value) === String(def.settings[seg.dataset.setting]));
     }
@@ -219,12 +229,27 @@
     const modeRow = document.querySelector('select[data-setting="mode"]');
     if (modeRow && modeRow.closest('.row')) modeRow.closest('.row').classList.toggle('is-dimmed', !adOn);
     const dnsOn = !!runtime('dnsOverHttps').enabled;
-    for (const row of document.querySelectorAll('[data-dns-row]')) {
-      row.classList.toggle('is-dimmed', !dnsOn);
-    }
-    applyDownloadLocation();
+	    for (const row of document.querySelectorAll('[data-dns-row]')) {
+	      row.classList.toggle('is-dimmed', !dnsOn);
+	    }
+	    applySideRailControls();
+	    applyDownloadLocation();
     applyTheme();
-  }
+	  }
+
+	  function applySideRailControls() {
+	    const state = runtime('sideRail');
+	    const settings = state.settings || {};
+	    const customSites = document.querySelector('input[data-feature="sideRail"][data-setting="showCustomSites"]');
+	    if (customSites) customSites.checked = settings.showCustomSites !== false;
+	    const list = document.getElementById('side-rail-button-list');
+	    if (!list) return;
+	    const labels = { home: 'Home', bookmarks: 'Bookmarks', history: 'History', downloads: 'Downloads', settings: 'Settings' };
+	    const fallback = ['home', 'bookmarks', 'history', 'downloads', 'settings'];
+	    const order = [...(Array.isArray(settings.order) ? settings.order : fallback), ...fallback].filter((id, i, ids) => labels[id] && ids.indexOf(id) === i);
+	    const visible = new Set(Array.isArray(settings.visibleItems) ? settings.visibleItems : fallback);
+	    list.innerHTML = order.map((id, index) => `<div class="side-rail-order-row"><label><input type="checkbox" data-side-rail-item="${id}" ${visible.has(id) ? 'checked' : ''}> <span>${labels[id]}</span></label><span class="side-rail-order-actions"><button type="button" data-side-rail-move="up" data-side-rail-item="${id}" aria-label="Move ${labels[id]} up" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-side-rail-move="down" data-side-rail-item="${id}" aria-label="Move ${labels[id]} down" ${index === order.length - 1 ? 'disabled' : ''}>↓</button></span></div>`).join('');
+	  }
 
   // Downloads location row: path + Default/Custom indicator.
   function applyDownloadLocation() {
@@ -295,7 +320,11 @@
   // Map a (featureId, rowKey) search hit to its DOM row.
   function rowElFor(featureId, rowKey) {
     const by = (sel) => { const el = document.querySelector(sel); return el ? (el.closest('.row') || el) : null; };
-    if (featureId === 'themeSystem') return by('.segment[data-feature="themeSystem"][data-setting="' + rowKey + '"]');
+	    if (featureId === 'themeSystem') return by('.segment[data-feature="themeSystem"][data-setting="' + rowKey + '"]');
+	    if (featureId === 'sideRail') {
+	      if (rowKey === null) return by('.switch[data-feature="sideRail"]');
+	      return by('[data-feature="sideRail"][data-setting="' + rowKey + '"]');
+	    }
     if (featureId === 'adBlocker') {
       if (rowKey === null) return by('.switch[data-feature="adBlocker"]');
       return by('select[data-feature="adBlocker"][data-setting="' + rowKey + '"]');
@@ -565,9 +594,39 @@
       };
       seg.addEventListener('click', onClick);
       seg.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } });
-    }
+	    }
 
-    // Master switches
+	    const sideRailSites = document.querySelector('input[data-feature="sideRail"][data-setting="showCustomSites"]');
+	    sideRailSites?.addEventListener('change', () => {
+	      const value = sideRailSites.checked;
+	      if (snapshot.state?.sideRail?.settings) snapshot.state.sideRail.settings.showCustomSites = value;
+	      kairon.updateFeatureConfig('sideRail', { showCustomSites: value }).catch((err) => kairon.logError('settings-page-side-rail-sites', String(err && (err.message || err) || err)).catch(() => {}));
+	    });
+
+	    const sideRailList = document.getElementById('side-rail-button-list');
+	    sideRailList?.addEventListener('change', (event) => {
+	      const input = event.target.closest('[data-side-rail-item]');
+	      if (!input) return;
+	      const current = Array.isArray(snapshot.state?.sideRail?.settings?.visibleItems) ? snapshot.state.sideRail.settings.visibleItems : ['home', 'bookmarks', 'history', 'downloads', 'settings'];
+	      const visibleItems = input.checked ? [...new Set([...current, input.dataset.sideRailItem])] : current.filter((id) => id !== input.dataset.sideRailItem);
+	      if (snapshot.state?.sideRail?.settings) snapshot.state.sideRail.settings.visibleItems = visibleItems;
+	      kairon.updateFeatureConfig('sideRail', { visibleItems }).catch((err) => kairon.logError('settings-page-side-rail-visibility', String(err && (err.message || err) || err)).catch(() => {}));
+	    });
+    sideRailList?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-side-rail-move]');
+      if (!button) return;
+      const fallback = ['home', 'bookmarks', 'history', 'downloads', 'settings'];
+      const order = [...(snapshot.state?.sideRail?.settings?.order || fallback)];
+      const index = order.indexOf(button.dataset.sideRailItem);
+      const next = index + (button.dataset.sideRailMove === 'up' ? -1 : 1);
+      if (index < 0 || next < 0 || next >= order.length) return;
+      [order[index], order[next]] = [order[next], order[index]];
+      if (snapshot.state?.sideRail?.settings) snapshot.state.sideRail.settings.order = order;
+      kairon.updateFeatureConfig('sideRail', { order }).catch((err) => kairon.logError('settings-page-side-rail-order', String(err && (err.message || err) || err)).catch(() => {}));
+      applySideRailControls();
+    });
+
+	    // Master switches
     for (const sw of document.querySelectorAll('.switch[data-feature]')) {
       const onClick = () => {
         const on = sw.getAttribute('aria-checked') !== 'true';

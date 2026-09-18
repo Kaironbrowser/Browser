@@ -7,6 +7,7 @@ import { createTabStateStore } from './state.js';
 import { createUiController }  from './ui.js';
 import { initAiPanel }         from './ai.js';
 import { initCustomSites }     from './custom-sites.js';
+import { initSideRail }        from './side-rail.js';
 
 const { kairon } = window;
 
@@ -40,6 +41,7 @@ const ai       = initAiPanel(kairon);
 
 // ── CUSTOM SITES ─────────────────────────────────────────────
 initCustomSites((url) => kairon.navigate(url));
+initSideRail(kairon, tabStore, publishLayoutMetricsNow);
 
 // Authoritative boot value from the real store (corrects any stale query).
 kairon.getSettingsState().then((snapshot) => {
@@ -109,15 +111,15 @@ btnCloseAi.addEventListener('click', () => {
 });
 
 // ── LAYOUT METRICS ────────────────────────────────────────────
-const centerCol  = document.getElementById('center-col');
-const statusStrip = document.getElementById('status-strip');
+	const centerCol  = document.getElementById('center-col');
+	const statusStrip = document.getElementById('status-strip');
 
 // Single measurement source shared by the debounced, immediate, and delayed
 // publishes — avoids triplicating the geometry math.
 function _measureLayout() {
   if (!centerCol || !statusStrip) return null;
-  const centerRect = centerCol.getBoundingClientRect();
-  const statusRect  = statusStrip.getBoundingClientRect();
+	  const centerRect = centerCol.getBoundingClientRect();
+	  const statusRect  = statusStrip.getBoundingClientRect();
   return {
     x:      Math.round(centerRect.left),
     y:      Math.round(statusRect.bottom),

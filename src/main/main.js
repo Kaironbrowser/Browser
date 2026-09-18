@@ -2613,6 +2613,13 @@ function createTab(initialTarget = HOME_PAGE_URL) {
     const isMod = process.platform === 'darwin' ? input.meta : input.control;
     if (!isMod) return;
 
+    // Ctrl+Shift+E toggles the optional Side Rail in the browser chrome.
+    if ((input.key === 'e' || input.key === 'E' || input.code === 'KeyE') && input.shift && !input.alt) {
+      event.preventDefault();
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('side-rail-toggle');
+      return;
+    }
+
     // Ctrl+Shift+N — open a new Incognito window (or focus the existing one).
     // Exact combo only; does not collide with any existing shortcut.
     if ((input.key === 'n' || input.key === 'N' || input.code === 'KeyN') && input.shift && !input.alt) {
@@ -3495,6 +3502,12 @@ function createWindow() {
       openIncognitoWindow();
       return;
     }
+    if ((input.key === 'e' || input.key === 'E' || input.code === 'KeyE') && input.shift && !input.alt &&
+        (process.platform === 'darwin' ? input.meta : input.control)) {
+      event.preventDefault();
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('side-rail-toggle');
+      return;
+    }
     // Ctrl+N — open a new normal window while the browser chrome holds focus.
     if ((input.key === 'n' || input.key === 'N' || input.code === 'KeyN') && !input.shift && !input.alt &&
         (process.platform === 'darwin' ? input.meta : input.control)) {
@@ -3721,13 +3734,20 @@ function updateBounds() {
         currentContentSize: { w: currentW, h: currentH }
       });
     }
-  } else {
-    const [w, h] = mainWindow.getContentSize();
-    const rightOffset = sidebarOpen ? SIDEBAR_WIDTH : 0;
-    bounds = {
-      x: RAIL_WIDTH,
-      y: CHROME_HEIGHT,
-      width: Math.max(100, w - RAIL_WIDTH - rightOffset),
+	  } else {
+	    const [w, h] = mainWindow.getContentSize();
+	    const themeSettings = featureStore.getFeatureSettings('themeSystem') || {};
+	    const sideRailSettings = featureStore.getFeatureSettings('sideRail') || {};
+	    const sideRailEnabled = featureStore.isEnabled('sideRail');
+	    const sideRailWidth = sideRailSettings.width === 'normal' ? 60 : 48;
+	    const shellGap = themeSettings.tabPosition === 'top' ? 0 : 10;
+	    const sideRailOffset = sideRailEnabled ? sideRailWidth + shellGap : 0;
+	    const baseX = themeSettings.tabPosition === 'top' ? 0 : RAIL_WIDTH;
+	    const sideRailOnLeft = sideRailEnabled && sideRailSettings.position !== 'right';
+	    bounds = {
+	      x: baseX + (sideRailOnLeft ? sideRailOffset : 0),
+	      y: CHROME_HEIGHT,
+	      width: Math.max(100, w - baseX - sideRailOffset),
       height: Math.max(100, h - CHROME_HEIGHT),
     };
   }

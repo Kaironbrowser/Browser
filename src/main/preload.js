@@ -225,6 +225,7 @@ const RECEIVE_CHANNELS = new Set([
   'updater-state-changed',
   'custom-sites-updated',
   'custom-sites-toggle-request',
+  'side-rail-toggle',
   'overlay-suggestion-hover',
 ]);
 
@@ -531,6 +532,7 @@ const api = {
   notifyCustomSitesUpdated: () => send('custom-sites-updated'),
   onCustomSitesUpdated: (cb) => on('custom-sites-updated', cb),
   onCustomSitesToggleRequest: (cb) => on('custom-sites-toggle-request', cb),
+  onSideRailToggle: (cb) => on('side-rail-toggle', cb),
 
   // ── Overlay suggestion hover (mouse interaction syncs with keyboard nav) ──
   // The overlay sends the hovered suggestion index so the main renderer's

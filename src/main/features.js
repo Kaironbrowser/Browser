@@ -61,6 +61,20 @@ const FEATURE_REGISTRY = [
     },
   },
   {
+    id: 'sideRail',
+    name: 'Side Rail',
+    category: 'appearance',
+    hidden: true,
+    defaultEnabled: true,
+    settings: {
+      position: 'left',
+      width: 'compact',
+      visibleItems: ['home', 'bookmarks', 'history', 'downloads', 'settings'],
+      order: ['home', 'bookmarks', 'history', 'downloads', 'settings'],
+      showCustomSites: true,
+    },
+  },
+  {
     id: 'performanceOptimizer',
     name: 'Performance Optimizer',
     category: 'performance',

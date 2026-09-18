@@ -32,6 +32,7 @@ function _load() {
 function _save(sites) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sites));
+    window.dispatchEvent(new CustomEvent('kairon-custom-sites-updated'));
   } catch { /* quota — silently drop */ }
 }
 

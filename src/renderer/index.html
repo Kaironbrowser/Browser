@@ -10,6 +10,23 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <aside id="side-rail" aria-label="Side Rail">
+    <div id="side-rail-header" aria-label="Kairon browser frame">
+      <img src="assets/kairon-logo.svg" alt="Kairon" title="Kairon" />
+    </div>
+    <div id="side-rail-main">
+      <div id="side-rail-items" role="toolbar" aria-label="Browser sections"></div>
+      <div id="side-rail-sites" role="toolbar" aria-label="Pinned sites"></div>
+    </div>
+    <div id="side-rail-bottom">
+      <button id="side-rail-pin" class="side-rail-btn" type="button" title="Pin current site" aria-label="Pin current site">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+      </button>
+      <button id="side-rail-settings" class="side-rail-btn" type="button" title="Side Rail settings" aria-label="Side Rail settings">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 2v1.2M8 12.8V14M2 8h1.2M12.8 8H14M3.8 3.8l.85.85M11.35 11.35l.85.85M3.8 12.2l.85-.85M11.35 4.65l.85-.85"/></svg>
+      </button>
+    </div>
+  </aside>
 
   <!-- ══ LEFT RAIL ══════════════════════════════════════════ -->
   <aside id="left-rail" data-collapsed="false">
@@ -203,6 +220,9 @@
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
           <path d="M4 5h10M4 9h10M4 13h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
+      </button>
+      <button class="nav-btn" id="btn-toggle-side-rail" title="Toggle Side Rail (Ctrl+Shift+E)" aria-label="Toggle Side Rail" aria-pressed="true">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 2.5h10.5v11H3zM6 2.5v11" stroke="currentColor" stroke-width="1.2"/><path d="M9 6h2M9 8h2M9 10h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
       </button>
     </div>
 
